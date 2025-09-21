@@ -2,25 +2,25 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <set>
 #include <filesystem>
 #include <algorithm>
-#include <cstdlib>
 #include <getopt.h>
+#include <ranges>
 
 namespace fs = std::filesystem;
 
 // 计算 Levenshtein 距离
-int levenshtein_distance(const std::string& s1, const std::string& s2) {
-    int n = s1.size();
-    int m = s2.size();
-    std::vector<std::vector<int>> dp(n + 1, std::vector<int>(m + 1, 0));
+size_t levenshtein_distance(const std::string& s1, const std::string& s2) {
+    // 修复 levenshtein_distance 函数中变量类型
+    size_t n = s1.size();
+    size_t m = s2.size();
+    std::vector<std::vector<size_t>> dp(n + 1, std::vector<size_t>(m + 1, 0));
 
-    for (int i = 0; i <= n; ++i) dp[i][0] = i;
-    for (int j = 0; j <= m; ++j) dp[0][j] = j;
+    for (size_t i = 0; i <= n; ++i) dp[i][0] = i;
+    for (size_t j = 0; j <= m; ++j) dp[0][j] = j;
 
-    for (int i = 1; i <= n; ++i) {
-        for (int j = 1; j <= m; ++j) {
+    for (size_t i = 1; i <= n; ++i) {
+        for (size_t j = 1; j <= m; ++j) {
             if (s1[i-1] == s2[j-1]) {
                 dp[i][j] = dp[i-1][j-1];
             } else {
@@ -28,6 +28,7 @@ int levenshtein_distance(const std::string& s1, const std::string& s2) {
             }
         }
     }
+
     return dp[n][m];
 }
 
@@ -35,9 +36,9 @@ int levenshtein_distance(const std::string& s1, const std::string& s2) {
 double levenshtein_similarity(const std::string& a, const std::string& b) {
     if (a.empty() && b.empty()) return 1.0;
     if (a.empty() || b.empty()) return 0.0;
-    int distance = levenshtein_distance(a, b);
-    int max_len = std::max(a.size(), b.size());
-    return 1.0 - static_cast<double>(distance) / max_len;
+    size_t distance = levenshtein_distance(a, b);
+    size_t max_len = std::max(a.size(), b.size());
+    return 1.0 - (static_cast<double>(distance) / static_cast<double>(max_len));
 }
 
 int main(int argc, char* argv[]) {
@@ -46,34 +47,33 @@ int main(int argc, char* argv[]) {
     // 解析 -s 参数
     int opt;
     while ((opt = getopt(argc, argv, "s:")) != -1) {
-        switch (opt) {
-            case 's':
-                try {
-                    threshold = std::stod(optarg);
-                    if (threshold < 0.0 || threshold > 1.0) {
-                        std::cerr << "Similarity threshold must be between 0.0 and 1.0\n";
-                        return 1;
-                    }
-                } catch (...) {
-                    std::cerr << "Invalid threshold value: " << optarg << std::endl;
+        // 替换原来的 switch 语句部分
+        if (opt == 's') {
+            try {
+                threshold = std::stod(optarg);
+                if (threshold < 0.0 || threshold > 1.0) {
+                    std::cerr << "Similarity threshold must be between 0.0 and 1.0\n";
                     return 1;
                 }
-                break;
-            default:
-                std::cerr << "Usage: " << argv[0] << " [-s similarity_threshold] directory1 [directory2 ...]\n";
+            } catch (...) {
+                std::cerr << "Invalid threshold value: " << optarg << std::endl;
                 return 1;
+            }
+        } else {
+            std::cerr << "Usage: " << argv[0] << " [-s similarity_threshold] directory1 [directory2 ...]\n";
+            return 1;
         }
     }
 
     // 剩余参数都是目录路径
     std::vector<std::string> dir_paths;
     for (int i = optind; i < argc; ++i) {
-        dir_paths.push_back(argv[i]);
+        dir_paths.emplace_back(argv[i]);
     }
 
     // 如果没有传目录，默认使用当前目录
     if (dir_paths.empty()) {
-        dir_paths.push_back(".");
+        dir_paths.emplace_back(".");
     }
 
     // 存储每个文件夹名 -> 它的完整绝对路径列表（来自不同父目录）
@@ -113,8 +113,8 @@ int main(int argc, char* argv[]) {
 
     // 提取所有唯一的文件夹名
     std::vector<std::string> unique_names;
-    for (const auto& pair : name_to_paths) {
-        unique_names.push_back(pair.first);
+    for (const auto& name : std::views::keys(name_to_paths)) {
+        unique_names.push_back(name);
     }
 
     if (unique_names.size() < 2) {
@@ -123,7 +123,7 @@ int main(int argc, char* argv[]) {
     }
 
     // 排序以便输出一致
-    std::sort(unique_names.begin(), unique_names.end());
+    std::ranges::sort(unique_names.begin(), unique_names.end());
 
     // 比较所有名字对
     bool found = false;
@@ -144,7 +144,7 @@ int main(int argc, char* argv[]) {
                 for (const auto& path : name_to_paths[name2]) {
                     std::cout << "\t\"" << path.string() << "\"\n";
                 }
-		std::cout << "\n";
+                std::cout << "\n";
 
                 found = true;
             }
