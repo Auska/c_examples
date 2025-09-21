@@ -3,7 +3,6 @@
 #include <string>
 #include <filesystem>
 #include <algorithm>
-#include <ranges>
 #include <cctype>
 
 namespace fs = std::filesystem;
