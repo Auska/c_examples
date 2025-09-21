@@ -3,7 +3,7 @@
 #include <string>
 #include <filesystem>
 #include <algorithm>
-#include <cstdlib>
+#include <ranges>
 #include <cctype>
 
 namespace fs = std::filesystem;
@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
     all_directories.push_back(pathStr);
 
     // 按最后修改时间排序：从旧到新
-    std::sort(all_directories.begin(), all_directories.end(),
+    std::ranges::sort(all_directories.begin(), all_directories.end(),
         [](const fs::path& a, const fs::path& b) {
             return fs::last_write_time(a) < fs::last_write_time(b);
         });
