@@ -4,16 +4,30 @@
 #include <filesystem>
 #include <algorithm>
 #include <cctype>
+#include <getopt.h>
+#include <charconv>
+#include <chrono>
 
 namespace fs = std::filesystem;
 
-// 检查字符串是否为纯数字
+// 存储目录信息和时间戳
+struct DirInfo {
+    fs::path path;
+    fs::file_time_type time;
+};
+
+// 使用 std::from_chars 检查字符串是否为纯数字（性能优于 isdigit）
 bool is_number(const std::string& s) {
     if (s.empty()) return false;
-    for (char c : s) {
-        if (!std::isdigit(c)) return false;
-    }
-    return true;
+    int result = 0;
+    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), result);
+    return ec == std::errc() && ptr == s.data() + s.size();
+}
+
+// 使用 std::from_chars 解析整数（性能优于 stoi，不抛异常）
+bool parse_int(const std::string& s, int& result) {
+    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), result);
+    return ec == std::errc() && ptr == s.data() + s.size();
 }
 
 int main(int argc, char* argv[]) {
@@ -21,64 +35,85 @@ int main(int argc, char* argv[]) {
     int limit = -1;           // -1 表示不限制
     bool use_null_delim = false; // 是否使用 \0 分隔符
 
-        // 解析命令行参数
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-
-        if (arg == "-l") {
-            if (limit == -1 && i + 1 < argc && is_number(argv[i + 1])) {
-                limit = std::stoi(argv[++i]); // 消费下一个参数
-            } else {
-                // -l 单独出现，默认为 1（或你可以改为报错）
-                limit = 1;
-            }
-        } else if (arg.size() > 2 && arg.substr(0, 2) == "-l" && arg.size() > 2) {
-            // 支持 -l10
-            std::string numStr = arg.substr(2);
-            if (is_number(numStr)) {
-                limit = std::stoi(numStr);
-                if (limit <= 0) {
-                    std::cerr << "错误：-l 后面的数字必须大于 0\n";
-                    return 1;
-                }
-            } else {
-                std::cerr << "错误：-l 后面必须跟一个正整数，例如 -l10\n";
+    // 使用 getopt 解析命令行参数
+    int opt;
+    while ((opt = getopt(argc, argv, "l:0h")) != -1) {
+        if (opt == 'l') {
+            if (!parse_int(optarg, limit) || limit <= 0) {
+                std::cerr << "Error: -l requires a positive integer\n";
                 return 1;
             }
-        } else if (arg == "-0") {
+        } else if (opt == '0') {
             use_null_delim = true;
+        } else if (opt == 'h') {
+            std::cout << "Usage: " << argv[0] << " [OPTIONS] [directory]\n"
+                      << "\nOptions:\n"
+                      << "  -l <number>     Limit output to the oldest N directories (default: no limit)\n"
+                      << "  -0              Use null character as delimiter (for use with xargs)\n"
+                      << "  -h              Show this help message\n"
+                      << "\nDescription:\n"
+                      << "  List all directories in the specified path, sorted by last modification time\n"
+                      << "  from oldest to newest. If no directory is specified, the current directory is used.\n";
+            return 0;
         } else {
-            pathStr = arg; // 认为是路径
+            std::cerr << "Error: Unknown option '" << static_cast<char>(optopt) << "'\n";
+            std::cerr << "Use '" << argv[0] << " -h' for help.\n";
+            return 1;
         }
+    }
+
+    // 处理剩余的非选项参数（目录路径）
+    if (optind < argc) {
+        pathStr = argv[optind];
     }
 
     // 检查路径是否存在且是目录
     if (!fs::exists(pathStr)) {
-        std::cerr << "错误：路径不存在 '" << pathStr << "'\n";
+        std::cerr << "Error: Path does not exist: '" << pathStr << "'\n";
         return 1;
     }
 
     if (!fs::is_directory(pathStr)) {
-        std::cerr << "错误：提供的路径不是目录 '" << pathStr << "'\n";
+        std::cerr << "Error: Path is not a directory: '" << pathStr << "'\n";
         return 1;
     }
 
-    std::vector<fs::path> all_directories;
+    std::vector<DirInfo> all_directories;
 
-    // 递归遍历所有子目录
-    for (const auto& entry : fs::recursive_directory_iterator(pathStr)) {
-        if (entry.is_directory()) {
-            all_directories.push_back(entry.path());
+    try {
+        // 递归遍历所有子目录，跳过无权限的目录
+        auto opts = fs::directory_options::skip_permission_denied;
+        for (const auto& entry : fs::recursive_directory_iterator(pathStr, opts)) {
+            if (entry.is_directory()) {
+                try {
+                    DirInfo info;
+                    info.path = entry.path();
+                    info.time = fs::last_write_time(entry);
+                    all_directories.push_back(info);
+                } catch (const fs::filesystem_error&) {
+                    // 跳过无法获取时间的目录
+                }
+            }
         }
+
+        // 加入根目录本身
+        try {
+            DirInfo root_info;
+            root_info.path = pathStr;
+            root_info.time = fs::last_write_time(pathStr);
+            all_directories.push_back(root_info);
+        } catch (const fs::filesystem_error&) {
+            // 根目录时间获取失败，跳过
+        }
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << "Error: Failed to read directory: " << e.what() << "\n";
+        return 1;
     }
 
-    // 加入根目录本身
-    all_directories.push_back(pathStr);
-
-    // 按最后修改时间排序：从旧到新
+    // 按最后修改时间排序：从旧到新（时间戳已预计算，直接比较）
     std::ranges::sort(all_directories.begin(), all_directories.end(),
-        [](const fs::path& a, const fs::path& b) {
-            return fs::last_write_time(a) < fs::last_write_time(b);
+        [](const DirInfo& a, const DirInfo& b) {
+            return a.time < b.time;
         });
 
     // 输出结果：使用 \0 或 \n 分隔
@@ -87,34 +122,30 @@ int main(int argc, char* argv[]) {
 
     for (size_t i = 0; i < max_output; ++i) {
         const auto& dir = all_directories[i];
-        try {
-            if (use_null_delim) {
-                // 输出路径 + '\0'（不换行）
-                std::cout << dir.string();
-                std::cout.put('\0');
-            } else {
-                // 原始带时间格式输出
-                auto ftime = fs::last_write_time(dir);
-                auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                    ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now()
-                );
-                std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
-                std::tm* tm = std::localtime(&tt);
+        if (use_null_delim) {
+            // 输出路径 + '\0'（不换行）
+            std::cout << dir.path.string();
+            std::cout.put('\0');
+        } else {
+            // 原始带时间格式输出（使用预计算的时间戳）
+            auto ftime = dir.time;
+            auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now()
+            );
+            std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
+            std::tm* tm = std::localtime(&tt);
 
-                std::cout << std::put_time(tm, "%Y-%m-%d+%H:%M:%S")
-                          << "  " << dir.string() << '\n';
-            }
-        } catch (const fs::filesystem_error& e) {
-            std::cerr << "无法获取时间: " << dir << " (" << e.what() << ")\n";
+            std::cout << std::put_time(tm, "%Y-%m-%d+%H:%M:%S")
+                      << "  " << dir.path.string() << '\n';
         }
     }
 
     // 只有在非 null 分隔时才输出统计信息（避免破坏 xargs 流）
     if (!use_null_delim) {
         if (limit != -1) {
-            std::cout << "\n(仅显示最老的 " << max_output << " 个文件夹)\n";
+            std::cout << "\n(Showing oldest " << max_output << " directories)\n";
         } else {
-            std::cout << "\n共找到 " << count << " 个文件夹。\n";
+            std::cout << "\nFound " << count << " directories.\n";
         }
     }
 
