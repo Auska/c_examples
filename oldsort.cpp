@@ -7,8 +7,35 @@
 #include <getopt.h>
 #include <charconv>
 #include <chrono>
+#include <expected>
 
 namespace fs = std::filesystem;
+
+// 定义错误类型
+enum class Error {
+    None,
+    PathNotFound,
+    NotADirectory,
+    FailedToReadDirectory,
+    InvalidLimit,
+    UnknownOption
+};
+
+// 错误消息映射
+std::string error_to_string(Error err) {
+    switch (err) {
+        case Error::PathNotFound: return "Path does not exist";
+        case Error::NotADirectory: return "Path is not a directory";
+        case Error::FailedToReadDirectory: return "Failed to read directory";
+        case Error::InvalidLimit: return "Invalid limit value";
+        case Error::UnknownOption: return "Unknown option";
+        default: return "Unknown error";
+    }
+}
+
+// Result 类型别名
+template<typename T>
+using Result = std::expected<T, std::pair<Error, std::string>>;
 
 // 存储目录信息和时间戳
 struct DirInfo {
@@ -16,16 +43,8 @@ struct DirInfo {
     fs::file_time_type time;
 };
 
-// 使用 std::from_chars 检查字符串是否为纯数字（性能优于 isdigit）
-bool is_number(const std::string& s) {
-    if (s.empty()) return false;
-    int result = 0;
-    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), result);
-    return ec == std::errc() && ptr == s.data() + s.size();
-}
-
 // 使用 std::from_chars 解析整数（性能优于 stoi，不抛异常）
-bool parse_int(const std::string& s, int& result) {
+[[nodiscard]] bool parse_int(const std::string& s, int& result) {
     auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), result);
     return ec == std::errc() && ptr == s.data() + s.size();
 }
@@ -69,12 +88,12 @@ int main(int argc, char* argv[]) {
 
     // 检查路径是否存在且是目录
     if (!fs::exists(pathStr)) {
-        std::cerr << "Error: Path does not exist: '" << pathStr << "'\n";
+        std::cerr << "Error: " << error_to_string(Error::PathNotFound) << ": '" << pathStr << "'\n";
         return 1;
     }
 
     if (!fs::is_directory(pathStr)) {
-        std::cerr << "Error: Path is not a directory: '" << pathStr << "'\n";
+        std::cerr << "Error: " << error_to_string(Error::NotADirectory) << ": '" << pathStr << "'\n";
         return 1;
     }
 
@@ -106,7 +125,7 @@ int main(int argc, char* argv[]) {
             // 根目录时间获取失败，跳过
         }
     } catch (const fs::filesystem_error& e) {
-        std::cerr << "Error: Failed to read directory: " << e.what() << "\n";
+        std::cerr << "Error: " << error_to_string(Error::FailedToReadDirectory) << ": " << e.what() << "\n";
         return 1;
     }
 

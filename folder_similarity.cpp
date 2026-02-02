@@ -6,11 +6,41 @@
 #include <algorithm>
 #include <getopt.h>
 #include <ranges>
+#include <expected>
+#include <variant>
 
 namespace fs = std::filesystem;
 
+// 定义错误类型
+enum class Error {
+    None,
+    DirectoryNotFound,
+    NotADirectory,
+    CannotGetAbsolutePath,
+    CannotReadDirectory,
+    InvalidThreshold,
+    UnknownOption
+};
+
+// 错误消息映射
+std::string error_to_string(Error err) {
+    switch (err) {
+        case Error::DirectoryNotFound: return "Directory does not exist";
+        case Error::NotADirectory: return "Not a directory";
+        case Error::CannotGetAbsolutePath: return "Cannot get absolute path";
+        case Error::CannotReadDirectory: return "Cannot read directory";
+        case Error::InvalidThreshold: return "Invalid threshold value";
+        case Error::UnknownOption: return "Unknown option";
+        default: return "Unknown error";
+    }
+}
+
+// Result 类型别名
+template<typename T>
+using Result = std::expected<T, std::pair<Error, std::string>>;
+
 // 计算 Levenshtein 距离（优化空间复杂度为 O(min(n,m))）
-size_t levenshtein_distance(const std::string& s1, const std::string& s2) {
+[[nodiscard]] size_t levenshtein_distance(const std::string& s1, const std::string& s2) {
     // 确保 s1 是较短的字符串，以最小化空间使用
     const std::string* shorter = &s1;
     const std::string* longer = &s2;
@@ -47,7 +77,7 @@ size_t levenshtein_distance(const std::string& s1, const std::string& s2) {
 }
 
 // 计算 Levenshtein 相似度 (0.0 ~ 1.0)
-double levenshtein_similarity(const std::string& a, const std::string& b) {
+[[nodiscard]] double levenshtein_similarity(const std::string& a, const std::string& b) {
     if (a.empty() && b.empty()) return 1.0;
     if (a.empty() || b.empty()) return 0.0;
     size_t distance = levenshtein_distance(a, b);
@@ -69,7 +99,7 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
             } catch (...) {
-                std::cerr << "Error: Invalid threshold value: " << optarg << std::endl;
+                std::cerr << "Error: Invalid threshold value: " << optarg << "\n";
                 return 1;
             }
         } else if (opt == 'h') {
@@ -104,12 +134,15 @@ int main(int argc, char* argv[]) {
     std::unordered_map<std::string, std::vector<fs::path>> name_to_paths;
 
     for (const auto& dir_path : dir_paths) {
+        // 检查目录是否存在
         if (!fs::exists(dir_path)) {
-            std::cerr << "Warning: Directory does not exist: " << dir_path << std::endl;
+            std::cerr << "Warning: Directory does not exist: " << dir_path << "\n";
             continue;
         }
+        
+        // 检查是否为目录
         if (!fs::is_directory(dir_path)) {
-            std::cerr << "Warning: Not a directory (skipped): " << dir_path << std::endl;
+            std::cerr << "Warning: Not a directory (skipped): " << dir_path << "\n";
             continue;
         }
 
@@ -118,10 +151,11 @@ int main(int argc, char* argv[]) {
         try {
             abs_parent = fs::absolute(dir_path);
         } catch (const fs::filesystem_error& e) {
-            std::cerr << "Cannot get absolute path for: " << dir_path << " -> " << e.what() << std::endl;
+            std::cerr << "Warning: Cannot get absolute path for: " << dir_path << " -> " << e.what() << "\n";
             continue;
         }
 
+        // 遍历目录
         try {
             for (const auto& entry : fs::directory_iterator(dir_path)) {
                 if (entry.is_directory()) {
@@ -131,7 +165,7 @@ int main(int argc, char* argv[]) {
                 }
             }
         } catch (const fs::filesystem_error& e) {
-            std::cerr << "Error reading directory: " << dir_path << " -> " << e.what() << std::endl;
+            std::cerr << "Warning: Error reading directory: " << dir_path << " -> " << e.what() << "\n";
         }
     }
 
