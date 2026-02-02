@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <map>
+#include <unordered_map>
 #include <filesystem>
 #include <algorithm>
 #include <getopt.h>
@@ -9,27 +9,41 @@
 
 namespace fs = std::filesystem;
 
-// 计算 Levenshtein 距离
+// 计算 Levenshtein 距离（优化空间复杂度为 O(min(n,m))）
 size_t levenshtein_distance(const std::string& s1, const std::string& s2) {
-    // 修复 levenshtein_distance 函数中变量类型
-    size_t n = s1.size();
-    size_t m = s2.size();
-    std::vector<std::vector<size_t>> dp(n + 1, std::vector<size_t>(m + 1, 0));
-
-    for (size_t i = 0; i <= n; ++i) dp[i][0] = i;
-    for (size_t j = 0; j <= m; ++j) dp[0][j] = j;
-
-    for (size_t i = 1; i <= n; ++i) {
-        for (size_t j = 1; j <= m; ++j) {
-            if (s1[i-1] == s2[j-1]) {
-                dp[i][j] = dp[i-1][j-1];
-            } else {
-                dp[i][j] = 1 + std::min({dp[i-1][j], dp[i][j-1], dp[i-1][j-1]});
-            }
-        }
+    // 确保 s1 是较短的字符串，以最小化空间使用
+    const std::string* shorter = &s1;
+    const std::string* longer = &s2;
+    if (s1.size() > s2.size()) {
+        std::swap(shorter, longer);
     }
 
-    return dp[n][m];
+    size_t n = shorter->size();
+    size_t m = longer->size();
+
+    // 只使用两行 DP 数组
+    std::vector<size_t> prev_row(n + 1);
+    std::vector<size_t> curr_row(n + 1);
+
+    // 初始化第一行
+    for (size_t i = 0; i <= n; ++i) {
+        prev_row[i] = i;
+    }
+
+    // 填充 DP 表
+    for (size_t j = 1; j <= m; ++j) {
+        curr_row[0] = j;
+        for (size_t i = 1; i <= n; ++i) {
+            if ((*shorter)[i - 1] == (*longer)[j - 1]) {
+                curr_row[i] = prev_row[i - 1];
+            } else {
+                curr_row[i] = 1 + std::min({prev_row[i], curr_row[i - 1], prev_row[i - 1]});
+            }
+        }
+        std::swap(prev_row, curr_row);
+    }
+
+    return prev_row[n];
 }
 
 // 计算 Levenshtein 相似度 (0.0 ~ 1.0)
@@ -44,23 +58,33 @@ double levenshtein_similarity(const std::string& a, const std::string& b) {
 int main(int argc, char* argv[]) {
     double threshold = 0.9;
 
-    // 解析 -s 参数
+    // 解析命令行参数
     int opt;
-    while ((opt = getopt(argc, argv, "s:")) != -1) {
-        // 替换原来的 switch 语句部分
+    while ((opt = getopt(argc, argv, "s:h")) != -1) {
         if (opt == 's') {
             try {
                 threshold = std::stod(optarg);
                 if (threshold < 0.0 || threshold > 1.0) {
-                    std::cerr << "Similarity threshold must be between 0.0 and 1.0\n";
+                    std::cerr << "Error: Similarity threshold must be between 0.0 and 1.0\n";
                     return 1;
                 }
             } catch (...) {
-                std::cerr << "Invalid threshold value: " << optarg << std::endl;
+                std::cerr << "Error: Invalid threshold value: " << optarg << std::endl;
                 return 1;
             }
+        } else if (opt == 'h') {
+            std::cout << "Usage: " << argv[0] << " [OPTIONS] [directory1 [directory2 ...]]\n"
+                      << "\nOptions:\n"
+                      << "  -s <threshold>  Set similarity threshold (0.0 ~ 1.0, default: 0.9)\n"
+                      << "  -h              Show this help message\n"
+                      << "\nDescription:\n"
+                      << "  Compare folder names in the specified directories using Levenshtein distance.\n"
+                      << "  If no directories are specified, the current directory is used.\n"
+                      << "  Only pairs with similarity >= threshold are displayed.\n";
+            return 0;
         } else {
-            std::cerr << "Usage: " << argv[0] << " [-s similarity_threshold] directory1 [directory2 ...]\n";
+            std::cerr << "Error: Unknown option '" << static_cast<char>(optopt) << "'\n";
+            std::cerr << "Use '" << argv[0] << " -h' for help.\n";
             return 1;
         }
     }
@@ -77,7 +101,7 @@ int main(int argc, char* argv[]) {
     }
 
     // 存储每个文件夹名 -> 它的完整绝对路径列表（来自不同父目录）
-    std::map<std::string, std::vector<fs::path>> name_to_paths;
+    std::unordered_map<std::string, std::vector<fs::path>> name_to_paths;
 
     for (const auto& dir_path : dir_paths) {
         if (!fs::exists(dir_path)) {
@@ -101,9 +125,9 @@ int main(int argc, char* argv[]) {
         try {
             for (const auto& entry : fs::directory_iterator(dir_path)) {
                 if (entry.is_directory()) {
-                    std::string name = entry.path().filename().string();
+                    fs::path name = entry.path().filename();
                     fs::path full_path = abs_parent / name;  // 构造完整路径
-                    name_to_paths[name].push_back(full_path);
+                    name_to_paths[name.string()].push_back(full_path);
                 }
             }
         } catch (const fs::filesystem_error& e) {
