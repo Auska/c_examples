@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 
 namespace fs = std::filesystem;
 
@@ -24,6 +26,19 @@ std::string format_size(uintmax_t bytes) {
     } else {
         snprintf(buffer, sizeof(buffer), "%.2f %s", size, units[unit_index]);
     }
+    return buffer;
+}
+
+// 格式化修改时间（参考 oldsort.cpp）
+std::string format_time(fs::file_time_type ftime) {
+    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now()
+    );
+    std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
+    std::tm* tm = std::localtime(&tt);
+    
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d+%H:%M:%S", tm);
     return buffer;
 }
 
@@ -110,9 +125,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // 存储每个中文名对应的所有路径及其大小
-    // Chinese name -> vector of (path, total_size)
-    std::unordered_map<std::string, std::vector<std::pair<fs::path, uintmax_t>>> name_map;
+    // 存储每个中文名对应的所有路径及其大小、时间
+    // Chinese name -> vector of (path, total_size, mtime)
+    std::unordered_map<std::string, std::vector<std::tuple<fs::path, uintmax_t, fs::file_time_type>>> name_map;
 
     try {
         for (const auto& entry : fs::directory_iterator(path_str)) {
@@ -123,7 +138,8 @@ int main(int argc, char* argv[]) {
 
                 if (!chinese_name.empty()) {
                     uintmax_t total_size = calculate_total_size(dir_path);
-                    name_map[chinese_name].push_back({dir_path, total_size});
+                    fs::file_time_type mtime = fs::last_write_time(dir_path);
+                    name_map[chinese_name].push_back({dir_path, total_size, mtime});
                 }
             }
         }
@@ -133,43 +149,44 @@ int main(int argc, char* argv[]) {
     }
 
     // 对每个中文名，输出路径
-    for (const auto& [chinese_name, paths_and_sizes] : name_map) {
-        if (paths_and_sizes.size() > 1) {
+    for (const auto& [chinese_name, entries] : name_map) {
+        if (entries.size() > 1) {
             if (print_all) {
                 // -all: 显示所有重复的文件夹
-                for (const auto& [path, size] : paths_and_sizes) {
+                for (const auto& [path, size, mtime] : entries) {
                     if (use_print0) {
                         std::cout << path.string();
                         std::cout.put('\0');
                     } else {
-                        std::cout << chinese_name << " -> '" << path.string() << "'"
-                                  << " (" << format_size(size) << ")\n";
+                        std::cout << chinese_name << " -> '" << path.string() << "' "
+                                  << format_time(mtime) << " " << format_size(size) << "\n";
                     }
                 }
             } else {
                 // 默认: 找出总大小最小或最大的路径
                 auto extreme_entry = print_max 
                     ? std::max_element(
-                        paths_and_sizes.begin(),
-                        paths_and_sizes.end(),
+                        entries.begin(),
+                        entries.end(),
                         [](const auto& a, const auto& b) {
-                            return a.second < b.second;
+                            return std::get<1>(a) < std::get<1>(b);
                         }
                     )
                     : std::min_element(
-                        paths_and_sizes.begin(),
-                        paths_and_sizes.end(),
+                        entries.begin(),
+                        entries.end(),
                         [](const auto& a, const auto& b) {
-                            return a.second < b.second;
+                            return std::get<1>(a) < std::get<1>(b);
                         }
                     );
                 if (use_print0) {
                     // 输出路径 + '\0'（便于与 xargs -0 配合）
-                    std::cout << extreme_entry->first.string();
+                    std::cout << std::get<0>(*extreme_entry).string();
                     std::cout.put('\0');
                 } else {
-                    std::cout << chinese_name << " -> '" << extreme_entry->first.string() << "'"
-                              << " (" << format_size(extreme_entry->second) << ")\n";
+                    std::cout << chinese_name << " -> '" << std::get<0>(*extreme_entry).string() << "' "
+                              << format_time(std::get<2>(*extreme_entry)) << " "
+                              << format_size(std::get<1>(*extreme_entry)) << "\n";
                 }
             }
         }
