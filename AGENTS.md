@@ -126,6 +126,12 @@ make extract_name
   - 向 `std::cerr` 输出错误信息
   - 使用适当的返回码（0 表示成功，非 0 表示失败）
 
+- **代码格式化**:
+  - 使用 `.clang-format` 配置文件（Google 风格）
+  - 2 空格缩进，switch case 缩进
+  - 指针/引用类型右对齐
+  - 运行 `clang-format -i <file>.cpp` 格式化代码
+
 ### 命令行参数处理
 
 - 使用 `getopt` 函数或手动解析参数
@@ -146,6 +152,7 @@ c_examples/
 ├── oldsort.cpp              # 目录排序工具
 ├── extract_name.cpp         # 提取中括号名称并比较大小工具
 ├── Makefile                 # Make 构建配置
+├── .clang-format            # 代码格式化配置
 ├── .gitignore               # Git 忽略配置
 └── README.md                # 项目说明文档
 ```
