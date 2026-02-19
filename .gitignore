@@ -1,1 +1,6 @@
 /cmake-build-debug/
+
+# Build executables
+folder_similarity
+oldsort
+extract_name

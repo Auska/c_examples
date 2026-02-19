@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-这是一个 C++ 实用工具集合项目，包含两个独立的命令行工具程序：
+这是一个 C++ 实用工具集合项目，包含三个独立的命令行工具程序：
 
 1. **folder_similarity** - 文件夹名称相似度比较工具
    - 使用 Levenshtein 距离算法计算文件夹名称的相似度
@@ -14,13 +14,18 @@
    - 支持限制输出数量
    - 支持使用空字符分隔符输出，便于与其他工具管道结合
 
+3. **extract_name** - 提取文件夹中括号名称并比较大小工具
+   - 从文件夹名称中提取 `[...]` 内的中文名
+   - 对于相同中文名的文件夹，比较目录内文件总大小
+   - 支持输出最小/最大/所有重复文件夹
+
 ## 技术栈
 
 - **语言**: C++23
 - **标准库**:
   - `<filesystem>` - 文件系统操作
   - `<ranges>` - 范围操作
-  - `<getopt.h>` - 命令行参数解析
+  - `<getopt.h>` - 命令行参数解析（部分工具使用手动解析）
 - **构建工具**: Make
 
 ## 构建和运行
@@ -28,11 +33,16 @@
 ### 构建项目
 
 ```bash
-# 使用 Make 构建
+# 使用 Make 构建所有工具
 make
 
 # 或者指定编译器（如果需要）
 make CXX=g++
+
+# 单独构建某个工具
+make folder_similarity
+make oldsort
+make extract_name
 ```
 
 ### 运行程序
@@ -68,6 +78,28 @@ make CXX=g++
 ./oldsort /path/to/directory
 ```
 
+#### extract_name
+
+```bash
+# 提取中括号内的中文名，对比重复文件夹的文件总大小
+./extract_name <directory>
+
+# -min: 显示总大小最小的路径（默认）
+./extract_name -min <directory>
+
+# -max: 显示总大小最大的路径
+./extract_name -max <directory>
+
+# -all: 显示所有重复的文件夹
+./extract_name -all <directory>
+
+# -print0: 使用空字符分隔输出（便于与 xargs -0 配合）
+./extract_name -print0 <directory>
+
+# 组合使用：显示所有重复文件夹并使用空字符分隔
+./extract_name -all -print0 <directory>
+```
+
 ## 开发约定
 
 ### 代码风格
@@ -88,7 +120,7 @@ make CXX=g++
 
 ### 命令行参数处理
 
-- 使用 `getopt` 函数解析参数
+- 使用 `getopt` 函数或手动解析参数
 - 提供清晰的使用说明（Usage 信息）
 - 参数验证和错误处理（如阈值范围检查、数字验证等）
 
@@ -104,8 +136,10 @@ make CXX=g++
 c_examples/
 ├── folder_similarity.cpp    # 文件夹相似度比较工具
 ├── oldsort.cpp              # 目录排序工具
+├── extract_name.cpp         # 提取中括号名称并比较大小工具
+├── Makefile                 # Make 构建配置
 ├── .gitignore               # Git 忽略配置
-└── Makefile                 # Make 构建配置
+└── README.md               # 项目说明文档
 ```
 
 ## 已知限制

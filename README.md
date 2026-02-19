@@ -1,13 +1,14 @@
 # C++ Examples
 
-一个 C++23 实用工具集合项目，包含两个独立的命令行工具。
+一个 C++23 实用工具集合项目，包含三个独立的命令行工具。
 
 ## 项目简介
 
-本项目包含两个实用的命令行工具，用于文件系统操作和目录管理：
+本项目包含三个实用的命令行工具，用于文件系统操作和目录管理：
 
 - **folder_similarity** - 使用 Levenshtein 距离算法比较文件夹名称相似度
 - **oldsort** - 按最后修改时间排序并列出目录
+- **extract_name** - 提取文件夹中括号名称并比较文件大小
 
 ## 构建要求
 
@@ -20,7 +21,7 @@
 make
 ```
 
-这将编译两个可执行文件：`folder_similarity` 和 `oldsort`。
+这将编译三个可执行文件：`folder_similarity`、`oldsort` 和 `extract_name`。
 
 ## 工具说明
 
@@ -51,12 +52,6 @@ make
 # 比较指定目录
 ./folder_similarity /path/to/dir1 /path/to/dir2
 ```
-
-**算法特性：**
-
-- 使用优化的 Levenshtein 距离算法，空间复杂度为 O(min(n,m))
-- 支持同时比较多个目录
-- 只显示相似度 >= 阈值的文件夹对
 
 ### oldsort
 
@@ -90,15 +85,52 @@ make
 ./oldsort /path/to/directory
 ```
 
+### extract_name
+
+从文件夹名称中提取 `[...]` 内的中文名，对于相同中文名的文件夹，比较目录内文件总大小。
+
+**用法：**
+
+```bash
+./extract_name [OPTIONS] <directory>
+```
+
+**选项：**
+
+- `-min` - 显示总大小最小的路径（默认）
+- `-max` - 显示总大小最大的路径
+- `-all` - 显示所有重复的文件夹
+- `-print0` - 使用空字符作为分隔符（便于与 xargs -0 配合）
+- `-h` - 显示帮助信息
+
+**示例：**
+
+```bash
+# 提取中括号内的中文名，对比重复文件夹的文件总大小
+./extract_name /path/to/media
+
+# -max: 显示总大小最大的路径
+./extract_name -max /path/to/media
+
+# -all: 显示所有重复的文件夹
+./extract_name -all /path/to/media
+
+# -print0: 使用空字符分隔输出
+./extract_name -print0 /path/to/media | xargs -0 -I{} ls -ld '{}'
+
+# 组合使用：显示所有重复文件夹并使用空字符分隔
+./extract_name -all -print0 /path/to/media
+```
+
 **特性：**
 
-- 预计算时间戳，避免重复文件系统调用
-- 自动跳过无权限访问的目录
-- 支持与其他工具管道结合
+- 自动提取文件夹名中 `[...]` 内的中文名
+- 计算每个文件夹内所有文件的总大小
+- 支持人类可读的文件大小输出（B, KB, MB, GB, TB）
 
 ## 性能优化
 
-两个工具都采用了以下优化策略：
+所有工具都采用了以下优化策略：
 
 - 使用现代 C++23 特性（`std::expected`、`std::ranges`、`std::filesystem`）
 - 优化的算法实现（Levenshtein 距离空间优化）
@@ -129,7 +161,7 @@ make clean
 
 ### 命令行参数
 
-- 使用 `getopt` 函数解析参数
+- 使用 `getopt` 函数或手动解析参数
 - 提供清晰的帮助信息（`-h` 选项）
 - 参数验证和错误处理
 
