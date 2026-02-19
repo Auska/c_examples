@@ -1,8 +1,9 @@
+#include <getopt.h>
+
 #include <algorithm>
 #include <chrono>
 #include <expected>
 #include <filesystem>
-#include <getopt.h>
 #include <iomanip>
 #include <iostream>
 #include <ranges>
@@ -27,20 +28,20 @@ enum class Error {
 // 错误消息映射
 std::string error_to_string(Error err) {
   switch (err) {
-  case Error::DirectoryNotFound:
-    return "Directory does not exist";
-  case Error::NotADirectory:
-    return "Not a directory";
-  case Error::CannotGetAbsolutePath:
-    return "Cannot get absolute path";
-  case Error::CannotReadDirectory:
-    return "Cannot read directory";
-  case Error::InvalidThreshold:
-    return "Invalid threshold value";
-  case Error::UnknownOption:
-    return "Unknown option";
-  default:
-    return "Unknown error";
+    case Error::DirectoryNotFound:
+      return "Directory does not exist";
+    case Error::NotADirectory:
+      return "Not a directory";
+    case Error::CannotGetAbsolutePath:
+      return "Cannot get absolute path";
+    case Error::CannotReadDirectory:
+      return "Cannot read directory";
+    case Error::InvalidThreshold:
+      return "Invalid threshold value";
+    case Error::UnknownOption:
+      return "Unknown option";
+    default:
+      return "Unknown error";
   }
 }
 
@@ -104,7 +105,7 @@ class UnionFind {
   std::vector<size_t> parent_;
   std::vector<size_t> rank_;
 
-public:
+  public:
   explicit UnionFind(size_t n) : parent_(n), rank_(n, 0) {
     for (size_t i = 0; i < n; ++i) {
       parent_[i] = i;
@@ -113,7 +114,7 @@ public:
 
   size_t find(size_t x) {
     if (parent_[x] != x) {
-      parent_[x] = find(parent_[x]); // 路径压缩
+      parent_[x] = find(parent_[x]);  // 路径压缩
     }
     return parent_[x];
   }
@@ -260,7 +261,7 @@ int main(int argc, char *argv[]) {
       for (const auto &entry : fs::directory_iterator(dir_path)) {
         if (entry.is_directory()) {
           fs::path name = entry.path().filename();
-          fs::path full_path = abs_parent / name; // 构造完整路径
+          fs::path full_path = abs_parent / name;  // 构造完整路径
           name_to_paths[name.string()].push_back(full_path);
         }
       }

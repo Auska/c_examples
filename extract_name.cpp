@@ -90,9 +90,9 @@ void print_usage(const char *program_name) {
 
 int main(int argc, char *argv[]) {
   std::string path_str = ".";
-  bool print_max = false;  // 默认打印最小，-max 打印最大
-  bool print_all = false;  // -all 显示所有重复文件夹
-  bool use_print0 = false; // 默认不使用空字符分隔
+  bool print_max = false;   // 默认打印最小，-max 打印最大
+  bool print_all = false;   // -all 显示所有重复文件夹
+  bool use_print0 = false;  // 默认不使用空字符分隔
 
   // 手动解析参数，支持 -min 和 -max
   for (int i = 1; i < argc; ++i) {

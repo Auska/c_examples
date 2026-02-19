@@ -63,18 +63,18 @@ enum class Error {
 // 错误消息映射
 std::string error_to_string(Error err) {
   switch (err) {
-  case Error::PathNotFound:
-    return "Path does not exist";
-  case Error::NotADirectory:
-    return "Path is not a directory";
-  case Error::FailedToReadDirectory:
-    return "Failed to read directory";
-  case Error::InvalidLimit:
-    return "Invalid limit value";
-  case Error::UnknownOption:
-    return "Unknown option";
-  default:
-    return "Unknown error";
+    case Error::PathNotFound:
+      return "Path does not exist";
+    case Error::NotADirectory:
+      return "Path is not a directory";
+    case Error::FailedToReadDirectory:
+      return "Failed to read directory";
+    case Error::InvalidLimit:
+      return "Invalid limit value";
+    case Error::UnknownOption:
+      return "Unknown option";
+    default:
+      return "Unknown error";
   }
 }
 
@@ -101,10 +101,10 @@ struct DirInfo {
 
 int main(int argc, char *argv[]) {
   std::string pathStr = ".";
-  int limit = -1;          // -1 表示不限制
-  bool use_print0 = false; // 是否使用 \0 分隔符
+  int limit = -1;           // -1 表示不限制
+  bool use_print0 = false;  // 是否使用 \0 分隔符
   int sort_mode =
-      0; // 0: 按时间排序（默认），1: 按大小升序(-min)，2: 按大小降序(-max)
+      0;  // 0: 按时间排序（默认），1: 按大小升序(-min)，2: 按大小降序(-max)
 
   // 手动解析参数，支持 -min 和 -max
   for (int i = 1; i < argc; ++i) {
@@ -142,7 +142,7 @@ int main(int argc, char *argv[]) {
             std::cerr << "Error: -l requires a positive integer\n";
             return 1;
           }
-          i++; // 跳过下一个参数
+          i++;  // 跳过下一个参数
         } else {
           std::cerr << "Error: -l requires a positive integer\n";
           return 1;
