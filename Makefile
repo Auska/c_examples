@@ -2,11 +2,15 @@
 
 CXX ?= g++
 CXXFLAGS = -std=c++23 -Wall -Wextra -O2
-LDFLAGS = 
+LDFLAGS =
+
+PREFIX ?= $(HOME)/.local
+DESTDIR =
+BINDIR = $(DESTDIR)$(PREFIX)/bin
 
 TARGETS = folder_similarity oldsort extract_name
 
-.PHONY: all clean $(TARGETS)
+.PHONY: all clean install uninstall $(TARGETS)
 
 all: $(TARGETS)
 
@@ -21,3 +25,10 @@ extract_name: extract_name.cpp
 
 clean:
 	rm -f $(TARGETS)
+
+install: all
+	mkdir -p $(BINDIR)
+	install -m 755 $(TARGETS) $(BINDIR)/
+
+uninstall:
+	rm -f $(BINDIR)/$(TARGETS)
