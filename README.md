@@ -55,7 +55,7 @@ make
 
 ### oldsort
 
-递归遍历目录并按最后修改时间排序（从旧到新）。
+递归遍历目录并按最后修改时间排序（从旧到新），显示每个文件夹的总大小。
 
 **用法：**
 
@@ -65,8 +65,10 @@ make
 
 **选项：**
 
-- `-l <number>` - 限制输出最老的 N 个目录（默认：不限制）
-- `-0` - 使用空字符作为分隔符（用于与 xargs 等工具管道结合）
+- `-l <number>` - 限制输出前 N 个目录（默认：不限制）
+- `-print0` - 使用空字符作为分隔符（用于与 xargs -0 管道结合）
+- `-min` - 对 -l 限制的结果按文件夹大小升序排序
+- `-max` - 对 -l 限制的结果按文件夹大小降序排序
 - `-h` - 显示帮助信息
 
 **示例：**
@@ -75,15 +77,25 @@ make
 # 列出当前目录下所有文件夹，按修改时间从旧到新排序
 ./oldsort
 
-# 只显示最老的 5 个文件夹
+# 只显示前 5 个文件夹
 ./oldsort -l 5
 
 # 使用空字符分隔符输出（便于管道处理）
-./oldsort -0 | xargs -0 ls -ld
+./oldsort -print0 /path/to/directory | xargs -0 ls -ld
+
+# -l 限制结果中按大小排序
+./oldsort -l 10 -min /path/to/directory
+./oldsort -l 10 -max /path/to/directory
 
 # 指定目录
 ./oldsort /path/to/directory
 ```
+
+**特性：**
+
+- 显示文件夹总大小（人类可读格式：B, KB, MB, GB, TB）
+- 按最后修改时间排序（从旧到新）
+- 支持对限制结果按大小二次排序
 
 ### extract_name
 

@@ -11,7 +11,9 @@
 
 2. **oldsort** - 按修改时间排序目录工具
    - 递归遍历目录并按最后修改时间排序（从旧到新）
+   - 显示每个文件夹的总大小（人类可读格式）
    - 支持限制输出数量
+   - 支持按文件夹大小排序（-min/-max）
    - 支持使用空字符分隔符输出，便于与其他工具管道结合
 
 3. **extract_name** - 提取文件夹中括号名称并比较大小工具
@@ -66,13 +68,19 @@ make extract_name
 # 列出当前目录下所有文件夹，按修改时间从旧到新排序
 ./oldsort
 
-# 限制输出最老的 N 个文件夹
+# 限制输出前 N 个文件夹
 ./oldsort -l 5
 # 或使用 -lN 格式
-./oldsort -l10
+./oldsort -l 5 /path/to/dir
 
-# 使用空字符分隔符输出（便于与 xargs 等工具管道结合）
-./oldsort -0
+# 使用空字符分隔符输出（便于与 xargs -0 配合）
+./oldsort -print0 /path/to/directory
+
+# -min: 对 -l 限制的结果按文件夹大小升序排序
+./oldsort -l 10 -min /path/to/directory
+
+# -max: 对 -l 限制的结果按文件夹大小降序排序
+./oldsort -l 10 -max /path/to/directory
 
 # 指定目录
 ./oldsort /path/to/directory
@@ -139,7 +147,7 @@ c_examples/
 ├── extract_name.cpp         # 提取中括号名称并比较大小工具
 ├── Makefile                 # Make 构建配置
 ├── .gitignore               # Git 忽略配置
-└── README.md               # 项目说明文档
+└── README.md                # 项目说明文档
 ```
 
 ## 已知限制
