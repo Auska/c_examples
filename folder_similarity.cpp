@@ -8,6 +8,8 @@
 #include <ranges>
 #include <expected>
 #include <variant>
+#include <chrono>
+#include <iomanip>
 
 namespace fs = std::filesystem;
 
@@ -83,6 +85,84 @@ using Result = std::expected<T, std::pair<Error, std::string>>;
     size_t distance = levenshtein_distance(a, b);
     size_t max_len = std::max(a.size(), b.size());
     return 1.0 - (static_cast<double>(distance) / static_cast<double>(max_len));
+}
+
+// Union-Find 数据结构
+class UnionFind {
+    std::vector<size_t> parent_;
+    std::vector<size_t> rank_;
+
+public:
+    explicit UnionFind(size_t n) : parent_(n), rank_(n, 0) {
+        for (size_t i = 0; i < n; ++i) {
+            parent_[i] = i;
+        }
+    }
+
+    size_t find(size_t x) {
+        if (parent_[x] != x) {
+            parent_[x] = find(parent_[x]);  // 路径压缩
+        }
+        return parent_[x];
+    }
+
+    void unite(size_t x, size_t y) {
+        size_t px = find(x);
+        size_t py = find(y);
+        if (px == py) return;
+
+        // 按秩合并
+        if (rank_[px] < rank_[py]) {
+            parent_[px] = py;
+        } else if (rank_[px] > rank_[py]) {
+            parent_[py] = px;
+        } else {
+            parent_[py] = px;
+            rank_[px]++;
+        }
+    }
+};
+
+// 递归计算文件夹大小
+[[nodiscard]] uintmax_t get_folder_size(const fs::path& dir_path) {
+    uintmax_t size = 0;
+    try {
+        for (const auto& entry : fs::recursive_directory_iterator(dir_path)) {
+            if (entry.is_regular_file()) {
+                size += entry.file_size();
+            }
+        }
+    } catch (const fs::filesystem_error&) {
+        // 忽略权限错误
+    }
+    return size;
+}
+
+// 格式化文件大小
+[[nodiscard]] std::string format_size(uintmax_t size) {
+    const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+    int unit_idx = 0;
+    double s = static_cast<double>(size);
+    while (s >= 1024.0 && unit_idx < 4) {
+        s /= 1024.0;
+        unit_idx++;
+    }
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1) << s << units[unit_idx];
+    return oss.str();
+}
+
+// 格式化修改时间（参考 oldsort.cpp）
+[[nodiscard]] std::string format_time(fs::file_time_type ftime) {
+    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now()
+    );
+    std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
+    std::tm* tm = std::localtime(&tt);
+    
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d+%H:%M:%S", tm);
+    return buffer;
 }
 
 int main(int argc, char* argv[]) {
@@ -183,8 +263,9 @@ int main(int argc, char* argv[]) {
     // 排序以便输出一致
     std::ranges::sort(unique_names.begin(), unique_names.end());
 
-    // 比较所有名字对
-    bool found = false;
+    // 使用 Union-Find 将相似的名字合并到同一组
+    UnionFind uf(unique_names.size());
+
     for (size_t i = 0; i < unique_names.size(); ++i) {
         for (size_t j = i + 1; j < unique_names.size(); ++j) {
             const std::string& name1 = unique_names[i];
@@ -192,25 +273,53 @@ int main(int argc, char* argv[]) {
 
             double sim = levenshtein_similarity(name1, name2);
             if (sim >= threshold) {
-                std::cout << "Similarity: " << sim << "\n";
-
-                // 打印 name1 的所有绝对路径
-                for (const auto& path : name_to_paths[name1]) {
-                    std::cout << "\t\"" << path.string() << "\"\n";
-                }
-                // 打印 name2 的所有绝对路径
-                for (const auto& path : name_to_paths[name2]) {
-                    std::cout << "\t\"" << path.string() << "\"\n";
-                }
-                std::cout << "\n";
-
-                found = true;
+                uf.unite(i, j);
             }
         }
     }
 
+    // 按根节点分组
+    std::unordered_map<size_t, std::vector<std::string>> groups;
+    for (size_t i = 0; i < unique_names.size(); ++i) {
+        size_t root = uf.find(i);
+        groups[root].push_back(unique_names[i]);
+    }
+
+    // 输出至少有2个成员的组
+    bool found = false;
+    for (const auto& group : std::views::values(groups)) {
+        if (group.size() < 2) continue;
+
+        found = true;
+        // 计算组内所有对的最小相似度
+        double min_sim = 1.0;
+        for (size_t i = 0; i < group.size(); ++i) {
+            for (size_t j = i + 1; j < group.size(); ++j) {
+                double sim = levenshtein_similarity(group[i], group[j]);
+                min_sim = std::min(min_sim, sim);
+            }
+        }
+        std::cout << "Group (min similarity: " << min_sim << "):\n";
+
+        // 打印组内每个名字的所有绝对路径
+        for (const auto& name : group) {
+            std::cout << "  \"" << name << "\":\n";
+            for (const auto& path : name_to_paths[name]) {
+                try {
+                    auto mtime = fs::last_write_time(path);
+                    uintmax_t size = get_folder_size(path);
+                    std::cout << "    \"" << path.string() << "\" "
+                              << format_time(mtime) << " " << format_size(size) << "\n";
+                } catch (const fs::filesystem_error& e) {
+                    std::cout << "    \"" << path.string() << "\" (error: " << e.what() << ")\n";
+                }
+            }
+        }
+        std::cout << "\n";
+    }
+
     if (!found) {
-        std::cout << "No folder name pairs with similarity >= " << threshold << "\n";
+        std::cout << "No folder name groups with similarity >= " << threshold << "\n";
     }
 
     return 0;
