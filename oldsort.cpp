@@ -2,85 +2,15 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
-#include <cstdio>
-#include <expected>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
 
+#include "common.hpp"
+
 namespace fs = std::filesystem;
-
-// 计算目录下所有文件的总大小
-uintmax_t calculate_total_size(const fs::path &dir_path) {
-  uintmax_t total_size = 0;
-  try {
-    for (const auto &entry : fs::recursive_directory_iterator(dir_path)) {
-      if (entry.is_regular_file()) {
-        try {
-          total_size += entry.file_size();
-        } catch (const fs::filesystem_error &) {
-          // 跳过无法获取大小的文件
-        }
-      }
-    }
-  } catch (const fs::filesystem_error &) {
-    // 跳过无法读取的目录
-  }
-  return total_size;
-}
-
-// 将字节数转换为人类可读格式
-std::string format_size(uintmax_t bytes) {
-  const char *units[] = {"B", "KB", "MB", "GB", "TB"};
-  int unit_index = 0;
-  double size = static_cast<double>(bytes);
-
-  while (size >= 1024 && unit_index < 4) {
-    size /= 1024;
-    unit_index++;
-  }
-
-  char buffer[32];
-  if (unit_index == 0) {
-    snprintf(buffer, sizeof(buffer), "%.0f %s", size, units[unit_index]);
-  } else {
-    snprintf(buffer, sizeof(buffer), "%.2f %s", size, units[unit_index]);
-  }
-  return buffer;
-}
-
-// 定义错误类型
-enum class Error {
-  None,
-  PathNotFound,
-  NotADirectory,
-  FailedToReadDirectory,
-  InvalidLimit,
-  UnknownOption
-};
-
-// 错误消息映射
-std::string error_to_string(Error err) {
-  switch (err) {
-    case Error::PathNotFound:
-      return "Path does not exist";
-    case Error::NotADirectory:
-      return "Path is not a directory";
-    case Error::FailedToReadDirectory:
-      return "Failed to read directory";
-    case Error::InvalidLimit:
-      return "Invalid limit value";
-    case Error::UnknownOption:
-      return "Unknown option";
-    default:
-      return "Unknown error";
-  }
-}
-
-// Result 类型别名
-template <typename T>
-using Result = std::expected<T, std::pair<Error, std::string>>;
 
 // 存储目录信息和时间戳
 struct DirInfo {
@@ -169,14 +99,12 @@ int main(int argc, char *argv[]) {
 
   // 检查路径是否存在且是目录
   if (!fs::exists(pathStr)) {
-    std::cerr << "Error: " << error_to_string(Error::PathNotFound) << ": '"
-              << pathStr << "'\n";
+    std::cerr << "Error: Path does not exist: '" << pathStr << "'\n";
     return 1;
   }
 
   if (!fs::is_directory(pathStr)) {
-    std::cerr << "Error: " << error_to_string(Error::NotADirectory) << ": '"
-              << pathStr << "'\n";
+    std::cerr << "Error: Path is not a directory: '" << pathStr << "'\n";
     return 1;
   }
 
@@ -191,7 +119,7 @@ int main(int argc, char *argv[]) {
           DirInfo info;
           info.path = entry.path();
           info.time = fs::last_write_time(entry);
-          info.size = calculate_total_size(entry.path());
+          info.size = common::calculate_total_size(entry.path());
           all_directories.push_back(info);
         } catch (const fs::filesystem_error &) {
           // 跳过无法获取时间的目录
@@ -204,14 +132,13 @@ int main(int argc, char *argv[]) {
       DirInfo root_info;
       root_info.path = pathStr;
       root_info.time = fs::last_write_time(pathStr);
-      root_info.size = calculate_total_size(pathStr);
+      root_info.size = common::calculate_total_size(pathStr);
       all_directories.push_back(root_info);
     } catch (const fs::filesystem_error &) {
       // 根目录时间获取失败，跳过
     }
   } catch (const fs::filesystem_error &e) {
-    std::cerr << "Error: " << error_to_string(Error::FailedToReadDirectory)
-              << ": " << e.what() << "\n";
+    std::cerr << "Error: Failed to read directory: " << e.what() << "\n";
     return 1;
   }
 
@@ -224,7 +151,7 @@ int main(int argc, char *argv[]) {
   size_t count = all_directories.size();
   size_t max_output = (limit == -1) ? count : std::min<size_t>(limit, count);
 
-  // -min/-max: 对 -l 限制后的结果按大小排序（如果没有 -l 则对所有结果排序）
+  // -min/-max: 对 -l 限制后的结果按大小排序
   if (sort_mode == 1) {
     std::ranges::stable_sort(
         all_directories.begin(), all_directories.begin() + max_output,
@@ -236,7 +163,6 @@ int main(int argc, char *argv[]) {
   }
 
   // 输出结果
-
   for (size_t i = 0; i < max_output; ++i) {
     const auto &dir = all_directories[i];
     if (use_print0) {
@@ -244,17 +170,10 @@ int main(int argc, char *argv[]) {
       std::cout << dir.path.string();
       std::cout.put('\0');
     } else {
-      // 原始带时间格式输出（使用预计算的时间戳）
-      auto ftime = dir.time;
-      auto sctp =
-          std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-              ftime - fs::file_time_type::clock::now() +
-              std::chrono::system_clock::now());
-      std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
-      std::tm *tm = std::localtime(&tt);
-
-      std::cout << std::put_time(tm, "%Y-%m-%d+%H:%M:%S") << "  "
-                << format_size(dir.size) << "  '" << dir.path.string() << "'\n";
+      // 原始带时间格式输出
+      std::cout << common::format_time(dir.time) << "  "
+                << common::format_size(dir.size) << "  '" << dir.path.string()
+                << "'\n";
     }
   }
 

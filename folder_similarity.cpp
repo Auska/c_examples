@@ -1,53 +1,14 @@
 #include <getopt.h>
 
 #include <algorithm>
-#include <chrono>
-#include <expected>
 #include <filesystem>
-#include <iomanip>
 #include <iostream>
 #include <ranges>
 #include <string>
 #include <unordered_map>
-#include <variant>
 #include <vector>
 
-namespace fs = std::filesystem;
-
-// 定义错误类型
-enum class Error {
-  None,
-  DirectoryNotFound,
-  NotADirectory,
-  CannotGetAbsolutePath,
-  CannotReadDirectory,
-  InvalidThreshold,
-  UnknownOption
-};
-
-// 错误消息映射
-std::string error_to_string(Error err) {
-  switch (err) {
-    case Error::DirectoryNotFound:
-      return "Directory does not exist";
-    case Error::NotADirectory:
-      return "Not a directory";
-    case Error::CannotGetAbsolutePath:
-      return "Cannot get absolute path";
-    case Error::CannotReadDirectory:
-      return "Cannot read directory";
-    case Error::InvalidThreshold:
-      return "Invalid threshold value";
-    case Error::UnknownOption:
-      return "Unknown option";
-    default:
-      return "Unknown error";
-  }
-}
-
-// Result 类型别名
-template <typename T>
-using Result = std::expected<T, std::pair<Error, std::string>>;
+#include "common.hpp"
 
 // 计算 Levenshtein 距离（优化空间复杂度为 O(min(n,m))）
 [[nodiscard]] size_t levenshtein_distance(const std::string &s1,
@@ -112,7 +73,7 @@ class UnionFind {
     }
   }
 
-  size_t find(size_t x) {
+  [[nodiscard]] size_t find(size_t x) {
     if (parent_[x] != x) {
       parent_[x] = find(parent_[x]);  // 路径压缩
     }
@@ -136,48 +97,6 @@ class UnionFind {
     }
   }
 };
-
-// 递归计算文件夹大小
-[[nodiscard]] uintmax_t get_folder_size(const fs::path &dir_path) {
-  uintmax_t size = 0;
-  try {
-    for (const auto &entry : fs::recursive_directory_iterator(dir_path)) {
-      if (entry.is_regular_file()) {
-        size += entry.file_size();
-      }
-    }
-  } catch (const fs::filesystem_error &) {
-    // 忽略权限错误
-  }
-  return size;
-}
-
-// 格式化文件大小
-[[nodiscard]] std::string format_size(uintmax_t size) {
-  const char *units[] = {"B", "KB", "MB", "GB", "TB"};
-  int unit_idx = 0;
-  double s = static_cast<double>(size);
-  while (s >= 1024.0 && unit_idx < 4) {
-    s /= 1024.0;
-    unit_idx++;
-  }
-  std::ostringstream oss;
-  oss << std::fixed << std::setprecision(1) << s << units[unit_idx];
-  return oss.str();
-}
-
-// 格式化修改时间（参考 oldsort.cpp）
-[[nodiscard]] std::string format_time(fs::file_time_type ftime) {
-  auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-      ftime - fs::file_time_type::clock::now() +
-      std::chrono::system_clock::now());
-  std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
-  std::tm *tm = std::localtime(&tt);
-
-  char buffer[32];
-  std::strftime(buffer, sizeof(buffer), "%Y-%m-%d+%H:%M:%S", tm);
-  return buffer;
-}
 
 int main(int argc, char *argv[]) {
   double threshold = 0.9;
@@ -331,9 +250,10 @@ int main(int argc, char *argv[]) {
       for (const auto &path : name_to_paths[name]) {
         try {
           auto mtime = fs::last_write_time(path);
-          uintmax_t size = get_folder_size(path);
-          std::cout << "    \"" << path.string() << "\" " << format_time(mtime)
-                    << " " << format_size(size) << "\n";
+          uintmax_t size = common::calculate_total_size(path);
+          std::cout << "    \"" << path.string() << "\" "
+                    << common::format_time(mtime) << " "
+                    << common::format_size(size) << "\n";
         } catch (const fs::filesystem_error &e) {
           std::cout << "    \"" << path.string() << "\" (error: " << e.what()
                     << ")\n";

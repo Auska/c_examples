@@ -8,6 +8,7 @@
    - 使用 Levenshtein 距离算法计算文件夹名称的相似度
    - 支持自定义相似度阈值
    - 可以比较多个目录中的子文件夹
+   - 使用 Union-Find 数据结构合并相似名称组
 
 2. **oldsort** - 按修改时间排序目录工具
    - 递归遍历目录并按最后修改时间排序（从旧到新）
@@ -47,6 +48,19 @@ make oldsort
 make extract_name
 ```
 
+### 安装和卸载
+
+```bash
+# 安装到 ~/.local/bin（默认）
+make install
+
+# 自定义安装路径
+make install PREFIX=/usr/local
+
+# 卸载
+make uninstall
+```
+
 ### 运行程序
 
 #### folder_similarity
@@ -71,7 +85,7 @@ make extract_name
 # 限制输出前 N 个文件夹
 ./oldsort -l 5
 # 或使用 -lN 格式
-./oldsort -l 5 /path/to/dir
+./oldsort -l5 /path/to/dir
 
 # 使用空字符分隔符输出（便于与 xargs -0 配合）
 ./oldsort -print0 /path/to/directory
@@ -119,6 +133,7 @@ make extract_name
 
 - **文件组织**:
   - 每个工具程序是独立的可执行文件
+  - 公共功能抽取到 `common.hpp` 头文件
   - 使用 `namespace fs = std::filesystem;` 简化文件系统操作
 
 - **错误处理**:
@@ -132,6 +147,19 @@ make extract_name
   - 指针/引用类型右对齐
   - 运行 `clang-format -i <file>.cpp` 格式化代码
 
+### 公共模块 (common.hpp)
+
+项目使用 `common.hpp` 提供公共功能：
+
+```cpp
+#include "common.hpp"
+
+// 可用函数：
+// - common::format_size(bytes)    - 格式化文件大小
+// - common::format_time(ftime)    - 格式化时间（线程安全）
+// - common::calculate_total_size(path) - 计算目录总大小
+```
+
 ### 命令行参数处理
 
 - 使用 `getopt` 函数或手动解析参数
@@ -143,11 +171,17 @@ make extract_name
 - 使用 `std::filesystem` 进行跨平台文件系统操作
 - 使用 C++23 `std::ranges` 进行排序操作
 - 使用 `std::chrono` 处理文件时间戳
+- 使用 `[[nodiscard]]` 属性标记返回值不应被忽略的函数
+
+### 线程安全
+
+- 时间格式化使用 `localtime_r` 替代非线程安全的 `localtime`
 
 ## 项目结构
 
 ```
 c_examples/
+├── common.hpp               # 公共头文件（格式化、大小计算等）
 ├── folder_similarity.cpp    # 文件夹相似度比较工具
 ├── oldsort.cpp              # 目录排序工具
 ├── extract_name.cpp         # 提取中括号名称并比较大小工具
