@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 struct DirInfo {
   fs::path path;
   fs::file_time_type time;
-  uintmax_t size;
+  uintmax_t size{};
 };
 
 // 使用 std::from_chars 解析整数（性能优于 stoi，不抛异常）
@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
                 << "  from oldest to newest. If no directory is specified, the "
                    "current directory is used.\n";
       return 0;
-    } else if (arg.rfind("-l", 0) == 0 && arg.length() > 2) {
+    } else if (arg.starts_with("-l") && arg.length() > 2) {
       // 支持 -lN 格式（如 -l20 或 -l1max）
       std::string num = arg.substr(2);
       if (!parse_int(num, limit) || limit <= 0) {
@@ -128,8 +128,8 @@ int main(int argc, char *argv[]) {
           DirInfo info;
           info.path = entry.path();
           info.time = fs::last_write_time(entry);
-          info.size = common::calculate_total_size_cached(entry.path(),
-                                                          size_cache);
+          info.size =
+              common::calculate_total_size_cached(entry.path(), size_cache);
           all_directories.push_back(info);
         } catch (const fs::filesystem_error &) {
           // 跳过无法获取时间的目录

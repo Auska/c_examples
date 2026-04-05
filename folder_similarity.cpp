@@ -16,7 +16,7 @@ class UnionFind {
   std::vector<size_t> parent_;
   std::vector<size_t> rank_;
 
- public:
+  public:
   explicit UnionFind(size_t n) : parent_(n), rank_(n, 0) {
     for (size_t i = 0; i < n; ++i) {
       parent_[i] = i;
@@ -33,8 +33,9 @@ class UnionFind {
   void unite(size_t x, size_t y) {
     size_t px = find(x);
     size_t py = find(y);
-    if (px == py)
+    if (px == py) {
       return;
+    }
 
     // 按秩合并
     if (rank_[px] < rank_[py]) {
@@ -52,7 +53,7 @@ int main(int argc, char *argv[]) {
   double threshold = 0.9;
 
   // 解析命令行参数
-  int opt;
+  int opt = 0;
   while ((opt = getopt(argc, argv, "s:h")) != -1) {
     if (opt == 's') {
       try {
@@ -164,9 +165,8 @@ int main(int argc, char *argv[]) {
 
   for (size_t i = 0; i < unique_names.size(); ++i) {
     for (size_t j = i + 1; j < unique_names.size(); ++j) {
-      double sim = common::levenshtein_similarity_cached(i, j, unique_names[i],
-                                                          unique_names[j],
-                                                          similarity_cache);
+      double sim = common::levenshtein_similarity_cached(
+          i, j, unique_names[i], unique_names[j], similarity_cache);
       if (sim >= threshold) {
         uf.unite(i, j);
       }
@@ -183,8 +183,9 @@ int main(int argc, char *argv[]) {
   // 输出至少有2个成员的组
   bool found = false;
   for (const auto &group : std::views::values(groups)) {
-    if (group.size() < 2)
+    if (group.size() < 2) {
       continue;
+    }
 
     found = true;
     // 计算组内所有对的最小相似度（使用缓存）
@@ -192,14 +193,13 @@ int main(int argc, char *argv[]) {
     for (size_t i = 0; i < group.size(); ++i) {
       for (size_t j = i + 1; j < group.size(); ++j) {
         // 找到在 unique_names 中的索引
-        auto idx1 = std::distance(
-            unique_names.begin(),
-            std::ranges::find(unique_names, group[i]));
-        auto idx2 = std::distance(
-            unique_names.begin(),
-            std::ranges::find(unique_names, group[j]));
+        auto idx1 = std::distance(unique_names.begin(),
+                                  std::ranges::find(unique_names, group[i]));
+        auto idx2 = std::distance(unique_names.begin(),
+                                  std::ranges::find(unique_names, group[j]));
         double sim =
-            similarity_cache.count({std::min(idx1, idx2), std::max(idx1, idx2)})
+            similarity_cache.contains(
+                {std::min(idx1, idx2), std::max(idx1, idx2)})
                 ? similarity_cache[{std::min(idx1, idx2), std::max(idx1, idx2)}]
                 : common::levenshtein_similarity(group[i], group[j]);
         min_sim = std::min(min_sim, sim);

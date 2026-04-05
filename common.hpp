@@ -52,7 +52,7 @@ namespace common {
   auto sys_time = sys_now + elapsed;
 
   std::time_t tt = system_clock::to_time_t(sys_time);
-  std::tm tm_buf;
+  std::tm tm_buf{};
   localtime_r(&tt, &tm_buf);
 
   char buffer[32];
@@ -106,9 +106,13 @@ namespace common {
 [[nodiscard]] inline std::string extract_bracket_content(
     const std::string &folder_name) {
   size_t end = folder_name.rfind(']');
-  if (end == std::string::npos) return "";
+  if (end == std::string::npos) {
+    return "";
+  }
   size_t start = folder_name.rfind('[', end);
-  if (start == std::string::npos) return "";
+  if (start == std::string::npos) {
+    return "";
+  }
   return folder_name.substr(start + 1, end - start - 1);
 }
 
@@ -116,7 +120,7 @@ namespace common {
 
 // 计算 Levenshtein 距离（优化空间复杂度为 O(min(n,m))）
 [[nodiscard]] inline size_t levenshtein_distance(const std::string &s1,
-                                                  const std::string &s2) {
+                                                 const std::string &s2) {
   // 确保 s1 是较短的字符串，以最小化空间使用
   const std::string *shorter = &s1;
   const std::string *longer = &s2;
@@ -155,9 +159,13 @@ namespace common {
 
 // 计算 Levenshtein 相似度 (0.0 ~ 1.0)
 [[nodiscard]] inline double levenshtein_similarity(const std::string &a,
-                                                    const std::string &b) {
-  if (a.empty() && b.empty()) return 1.0;
-  if (a.empty() || b.empty()) return 0.0;
+                                                   const std::string &b) {
+  if (a.empty() && b.empty()) {
+    return 1.0;
+  }
+  if (a.empty() || b.empty()) {
+    return 0.0;
+  }
   size_t distance = levenshtein_distance(a, b);
   size_t max_len = std::max(a.size(), b.size());
   return 1.0 - (static_cast<double>(distance) / static_cast<double>(max_len));
@@ -166,7 +174,7 @@ namespace common {
 // 用于缓存相似度计算的哈希函数
 struct PairHash {
   size_t operator()(const std::pair<size_t, size_t> &p) const {
-    return p.first * 31 + p.second;
+    return (p.first * 31) + p.second;
   }
 };
 
@@ -175,7 +183,9 @@ struct PairHash {
     size_t i, size_t j, const std::string &a, const std::string &b,
     std::unordered_map<std::pair<size_t, size_t>, double, PairHash> &cache) {
   // 确保 i < j 以便缓存键一致
-  if (i > j) std::swap(i, j);
+  if (i > j) {
+    std::swap(i, j);
+  }
   auto key = std::make_pair(i, j);
 
   auto it = cache.find(key);

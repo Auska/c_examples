@@ -84,7 +84,7 @@ int main(int argc, char *argv[]) {
         if (!chinese_name.empty()) {
           uintmax_t total_size = common::calculate_total_size(dir_path);
           fs::file_time_type mtime = fs::last_write_time(dir_path);
-          name_map[chinese_name].push_back({dir_path, total_size, mtime});
+          name_map[chinese_name].emplace_back(dir_path, total_size, mtime);
         }
       }
     }
@@ -111,15 +111,15 @@ int main(int argc, char *argv[]) {
       } else {
         // 默认: 找出总大小最小或最大的路径
         auto extreme_entry =
-            print_max
-                ? std::max_element(entries.begin(), entries.end(),
-                                   [](const auto &a, const auto &b) {
-                                     return std::get<1>(a) < std::get<1>(b);
-                                   })
-                : std::min_element(entries.begin(), entries.end(),
-                                   [](const auto &a, const auto &b) {
-                                     return std::get<1>(a) < std::get<1>(b);
-                                   });
+            print_max ? std::ranges::max_element(
+                            entries,
+                            [](const auto &a, const auto &b) {
+                              return std::get<1>(a) < std::get<1>(b);
+                            })
+                      : std::ranges::min_element(
+                            entries, [](const auto &a, const auto &b) {
+                              return std::get<1>(a) < std::get<1>(b);
+                            });
         if (use_print0) {
           // 输出路径 + '\0'（便于与 xargs -0 配合）
           std::cout << std::get<0>(*extreme_entry).string();
