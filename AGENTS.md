@@ -29,36 +29,42 @@
   - `<filesystem>` - 文件系统操作
   - `<ranges>` - 范围操作
   - `<getopt.h>` - 命令行参数解析（部分工具使用手动解析）
-- **构建工具**: Make
+- **构建工具**: CMake
+- **测试框架**: Catch2
 
 ## 构建和运行
 
 ### 构建项目
 
 ```bash
-# 使用 Make 构建所有工具
-make
+# 创建构建目录并构建
+cmake -B build
+cmake --build build
 
-# 或者指定编译器（如果需要）
-make CXX=g++
-
-# 单独构建某个工具
-make folder_similarity
-make oldsort
-make extract_name
+# 或者分步执行
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
 ```
 
-### 安装和卸载
+### 运行测试
 
 ```bash
-# 安装到 ~/.local/bin（默认）
-make install
+# 使用 CTest 运行测试
+cd build && ctest --output-on-failure
+
+# 或直接运行测试可执行文件
+./build/test_runner
+```
+
+### 安装
+
+```bash
+# 安装到默认路径（通常为 /usr/local/bin）
+cmake --install build
 
 # 自定义安装路径
-make install PREFIX=/usr/local
-
-# 卸载
-make uninstall
+cmake --install build --prefix /path/to/install
 ```
 
 ### 运行程序
@@ -155,9 +161,13 @@ make uninstall
 #include "common.hpp"
 
 // 可用函数：
-// - common::format_size(bytes)    - 格式化文件大小
-// - common::format_time(ftime)    - 格式化时间（线程安全）
+// - common::format_size(bytes)         - 格式化文件大小
+// - common::format_time(ftime)         - 格式化时间（线程安全）
 // - common::calculate_total_size(path) - 计算目录总大小
+// - common::calculate_total_size_cached(path, cache) - 带缓存计算目录大小
+// - common::extract_bracket_content(str) - 提取最后一对中括号内容
+// - common::levenshtein_distance(s1, s2) - 计算 Levenshtein 距离
+// - common::levenshtein_similarity(a, b) - 计算 Levenshtein 相似度
 ```
 
 ### 命令行参数处理
@@ -181,17 +191,21 @@ make uninstall
 
 ```
 c_examples/
-├── common.hpp               # 公共头文件（格式化、大小计算等）
+├── common.hpp               # 公共头文件（格式化、大小计算、Levenshtein 等）
 ├── folder_similarity.cpp    # 文件夹相似度比较工具
 ├── oldsort.cpp              # 目录排序工具
 ├── extract_name.cpp         # 提取中括号名称并比较大小工具
-├── Makefile                 # Make 构建配置
+├── external/                # 第三方库
+│   ├── catch_amalgamated.hpp
+│   └── catch_amalgamated.cpp
+├── tests/
+│   └── test_common.cpp      # 单元测试
+├── CMakeLists.txt           # CMake 构建配置
 ├── .clang-format            # 代码格式化配置
 ├── .gitignore               # Git 忽略配置
-└── README.md                # 项目说明文档
+└── AGENTS.md                # 项目说明文档
 ```
 
 ## 已知限制
 
 - 项目使用 C++23 特性（`std::ranges`），需要支持 C++23 的编译器
-- 目前没有单元测试

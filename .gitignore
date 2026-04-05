@@ -1,6 +1,28 @@
-/cmake-build-debug/
+# CMake build directories
+build/
+cmake-build-debug/
+cmake-build-release/
 
 # Build executables
 folder_similarity
 oldsort
 extract_name
+test_runner
+
+# CMake cache
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

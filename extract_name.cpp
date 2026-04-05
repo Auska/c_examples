@@ -9,16 +9,6 @@
 
 namespace fs = std::filesystem;
 
-// 从文件夹名称中提取中括号内的中文名
-[[nodiscard]] std::string extract_chinese_name(const std::string &folder_name) {
-  size_t start = folder_name.find('[');
-  size_t end = folder_name.find(']');
-  if (start != std::string::npos && end != std::string::npos && end > start) {
-    return folder_name.substr(start + 1, end - start - 1);
-  }
-  return "";
-}
-
 void print_usage(const char *program_name) {
   std::cout
       << "Usage: " << program_name << " [OPTIONS] <directory>\n"
@@ -89,7 +79,7 @@ int main(int argc, char *argv[]) {
       if (entry.is_directory()) {
         fs::path dir_path = entry.path();
         std::string folder_name = dir_path.filename().string();
-        std::string chinese_name = extract_chinese_name(folder_name);
+        std::string chinese_name = common::extract_bracket_content(folder_name);
 
         if (!chinese_name.empty()) {
           uintmax_t total_size = common::calculate_total_size(dir_path);

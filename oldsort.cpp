@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common.hpp"
@@ -21,9 +22,15 @@ struct DirInfo {
 
 // 使用 std::from_chars 解析整数（性能优于 stoi，不抛异常）
 [[nodiscard]] bool parse_int(const std::string &s, int &result) {
-  // 检查字符串是否完全由数字组成
-  if (s.empty() || !std::isdigit(s[0])) {
+  // 检查字符串是否为有效的正整数
+  if (s.empty()) {
     return false;
+  }
+  // 只允许数字字符
+  for (char c : s) {
+    if (!std::isdigit(static_cast<unsigned char>(c))) {
+      return false;
+    }
   }
   auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), result);
   return ec == std::errc() && ptr == s.data() + s.size();
@@ -109,6 +116,8 @@ int main(int argc, char *argv[]) {
   }
 
   std::vector<DirInfo> all_directories;
+  // 大小缓存，避免重复计算子目录大小
+  std::unordered_map<std::string, uintmax_t> size_cache;
 
   try {
     // 递归遍历所有子目录，跳过无权限的目录
@@ -119,7 +128,8 @@ int main(int argc, char *argv[]) {
           DirInfo info;
           info.path = entry.path();
           info.time = fs::last_write_time(entry);
-          info.size = common::calculate_total_size(entry.path());
+          info.size = common::calculate_total_size_cached(entry.path(),
+                                                          size_cache);
           all_directories.push_back(info);
         } catch (const fs::filesystem_error &) {
           // 跳过无法获取时间的目录
@@ -132,7 +142,7 @@ int main(int argc, char *argv[]) {
       DirInfo root_info;
       root_info.path = pathStr;
       root_info.time = fs::last_write_time(pathStr);
-      root_info.size = common::calculate_total_size(pathStr);
+      root_info.size = common::calculate_total_size_cached(pathStr, size_cache);
       all_directories.push_back(root_info);
     } catch (const fs::filesystem_error &) {
       // 根目录时间获取失败，跳过

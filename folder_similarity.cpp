@@ -6,67 +6,17 @@
 #include <ranges>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common.hpp"
-
-// 计算 Levenshtein 距离（优化空间复杂度为 O(min(n,m))）
-[[nodiscard]] size_t levenshtein_distance(const std::string &s1,
-                                          const std::string &s2) {
-  // 确保 s1 是较短的字符串，以最小化空间使用
-  const std::string *shorter = &s1;
-  const std::string *longer = &s2;
-  if (s1.size() > s2.size()) {
-    std::swap(shorter, longer);
-  }
-
-  size_t n = shorter->size();
-  size_t m = longer->size();
-
-  // 只使用两行 DP 数组
-  std::vector<size_t> prev_row(n + 1);
-  std::vector<size_t> curr_row(n + 1);
-
-  // 初始化第一行
-  for (size_t i = 0; i <= n; ++i) {
-    prev_row[i] = i;
-  }
-
-  // 填充 DP 表
-  for (size_t j = 1; j <= m; ++j) {
-    curr_row[0] = j;
-    for (size_t i = 1; i <= n; ++i) {
-      if ((*shorter)[i - 1] == (*longer)[j - 1]) {
-        curr_row[i] = prev_row[i - 1];
-      } else {
-        curr_row[i] =
-            1 + std::min({prev_row[i], curr_row[i - 1], prev_row[i - 1]});
-      }
-    }
-    std::swap(prev_row, curr_row);
-  }
-
-  return prev_row[n];
-}
-
-// 计算 Levenshtein 相似度 (0.0 ~ 1.0)
-[[nodiscard]] double levenshtein_similarity(const std::string &a,
-                                            const std::string &b) {
-  if (a.empty() && b.empty())
-    return 1.0;
-  if (a.empty() || b.empty())
-    return 0.0;
-  size_t distance = levenshtein_distance(a, b);
-  size_t max_len = std::max(a.size(), b.size());
-  return 1.0 - (static_cast<double>(distance) / static_cast<double>(max_len));
-}
 
 // Union-Find 数据结构
 class UnionFind {
   std::vector<size_t> parent_;
   std::vector<size_t> rank_;
 
-  public:
+ public:
   explicit UnionFind(size_t n) : parent_(n), rank_(n, 0) {
     for (size_t i = 0; i < n; ++i) {
       parent_[i] = i;
@@ -205,15 +155,18 @@ int main(int argc, char *argv[]) {
   // 排序以便输出一致
   std::ranges::sort(unique_names.begin(), unique_names.end());
 
+  // 相似度缓存，避免重复计算
+  std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
+      similarity_cache;
+
   // 使用 Union-Find 将相似的名字合并到同一组
   UnionFind uf(unique_names.size());
 
   for (size_t i = 0; i < unique_names.size(); ++i) {
     for (size_t j = i + 1; j < unique_names.size(); ++j) {
-      const std::string &name1 = unique_names[i];
-      const std::string &name2 = unique_names[j];
-
-      double sim = levenshtein_similarity(name1, name2);
+      double sim = common::levenshtein_similarity_cached(i, j, unique_names[i],
+                                                          unique_names[j],
+                                                          similarity_cache);
       if (sim >= threshold) {
         uf.unite(i, j);
       }
@@ -234,11 +187,21 @@ int main(int argc, char *argv[]) {
       continue;
 
     found = true;
-    // 计算组内所有对的最小相似度
+    // 计算组内所有对的最小相似度（使用缓存）
     double min_sim = 1.0;
     for (size_t i = 0; i < group.size(); ++i) {
       for (size_t j = i + 1; j < group.size(); ++j) {
-        double sim = levenshtein_similarity(group[i], group[j]);
+        // 找到在 unique_names 中的索引
+        auto idx1 = std::distance(
+            unique_names.begin(),
+            std::ranges::find(unique_names, group[i]));
+        auto idx2 = std::distance(
+            unique_names.begin(),
+            std::ranges::find(unique_names, group[j]));
+        double sim =
+            similarity_cache.count({std::min(idx1, idx2), std::max(idx1, idx2)})
+                ? similarity_cache[{std::min(idx1, idx2), std::max(idx1, idx2)}]
+                : common::levenshtein_similarity(group[i], group[j]);
         min_sim = std::min(min_sim, sim);
       }
     }
