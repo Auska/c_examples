@@ -53,8 +53,8 @@ void print_usage(const char* program_name) {
             << "  -all            Print all duplicate folders (same Chinese name)\n"
             << "  -print0         Use null character as delimiter (for use with "
                "xargs -0)\n"
-            << "  -t              Sort by modification time (oldest first)\n"
-            << "  -tr             Sort by modification time (newest first)\n"
+            << "  -t              Sort output by modification time (oldest first)\n"
+            << "  -tr             Sort output by modification time (newest first)\n"
             << "  -l <N>          Limit output to N lines per group\n"
             << "\nDescription:\n"
             << "  Extract Chinese name from brackets [...] in folder names.\n"
@@ -153,6 +153,14 @@ NameMap collect_name_map(const std::string& path_str,
   return name_map;
 }
 
+// 用于输出的条目结构（包含中文名）
+struct OutputEntry {
+  std::string chinese_name;
+  fs::path path;
+  std::uintmax_t size;
+  fs::file_time_type mtime;
+};
+
 void print_results(const NameMap& name_map,
                    bool print_max,
                    bool print_all,
@@ -160,34 +168,18 @@ void print_results(const NameMap& name_map,
                    bool sort_time,
                    bool sort_time_desc,
                    int limit) {
+  // 收集所有要输出的条目
+  std::vector<OutputEntry> output_entries;
+
   for (const auto& [chinese_name, entries] : name_map) {
     if (entries.size() > 1) {
       if (print_all) {
-        // 复制以便排序
-        auto sorted_entries = entries;
-        if (sort_time) {
-          std::ranges::sort(sorted_entries,
-                             [sort_time_desc](const auto& a, const auto& b) {
-                               return sort_time_desc ? std::get<2>(a) > std::get<2>(b)
-                                                     : std::get<2>(a) < std::get<2>(b);
-                             });
-        }
-        int count = 0;
-        for (const auto& [path, size, mtime] : sorted_entries) {
-          if (limit > 0 && count >= limit) {
-            break;
-          }
-          ++count;
-          if (use_print0) {
-            std::cout << path.string();
-            std::cout.put('\0');
-          } else {
-            std::cout << chinese_name << " -> '" << path.string() << "' "
-                      << common::format_time(mtime) << " "
-                      << common::format_size(size) << "\n";
-          }
+        // -all 模式：添加所有条目
+        for (const auto& [path, size, mtime] : entries) {
+          output_entries.push_back({chinese_name, path, size, mtime});
         }
       } else {
+        // 默认模式：只添加 min/max 条目
         const auto extreme_entry =
             print_max ? std::ranges::max_element(
                             entries,
@@ -198,16 +190,37 @@ void print_results(const NameMap& name_map,
                             entries, [](const auto& a, const auto& b) {
                               return std::get<1>(a) < std::get<1>(b);
                             });
-        if (use_print0) {
-          std::cout << std::get<0>(*extreme_entry).string();
-          std::cout.put('\0');
-        } else {
-          std::cout << chinese_name << " -> '"
-                    << std::get<0>(*extreme_entry).string() << "' "
-                    << common::format_time(std::get<2>(*extreme_entry)) << " "
-                    << common::format_size(std::get<1>(*extreme_entry)) << "\n";
-        }
+        output_entries.push_back(
+            {chinese_name,
+             std::get<0>(*extreme_entry),
+             std::get<1>(*extreme_entry),
+             std::get<2>(*extreme_entry)});
       }
+    }
+  }
+
+  // 按时间排序
+  if (sort_time) {
+    std::ranges::sort(output_entries,
+                       [sort_time_desc](const auto& a, const auto& b) {
+                         return sort_time_desc ? a.mtime > b.mtime : a.mtime < b.mtime;
+                       });
+  }
+
+  // 输出结果
+  int count = 0;
+  for (const auto& entry : output_entries) {
+    if (limit > 0 && count >= limit) {
+      break;
+    }
+    ++count;
+    if (use_print0) {
+      std::cout << entry.path.string();
+      std::cout.put('\0');
+    } else {
+      std::cout << entry.chinese_name << " -> '" << entry.path.string() << "' "
+                << common::format_time(entry.mtime) << " "
+                << common::format_size(entry.size) << "\n";
     }
   }
 }

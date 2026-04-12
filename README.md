@@ -89,6 +89,12 @@ cmake --install build
 # 按修改时间排序（从新到旧）
 ./extract_name -all -tr /path/to/media
 
+# 按时间排序输出最小大小的路径
+./extract_name -t /path/to/media
+
+# 按时间排序输出最大大小的路径
+./extract_name -max -t /path/to/media
+
 # 限制每组输出行数
 ./extract_name -all -l 3 /path/to/media
 
