@@ -3,11 +3,11 @@ build/
 cmake-build-debug/
 cmake-build-release/
 
-# Build executables
-folder_similarity
-oldsort
-extract_name
-test_runner
+# Build executables (root directory only)
+/folder_similarity
+/oldsort
+/extract_name
+/test_runner
 
 # CMake cache
 CMakeCache.txt
