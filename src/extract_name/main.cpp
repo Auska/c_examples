@@ -1,12 +1,13 @@
+#include "common/common.hpp"
+
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-
-#include "common/common.hpp"
 
 namespace fs = std::filesystem;
 
@@ -19,22 +20,24 @@ struct AppConfig {
   bool use_print0 = false;
 };
 
-using NameEntry = std::tuple<fs::path, uintmax_t, fs::file_time_type>;
+using NameEntry = std::tuple<fs::path, std::uintmax_t, fs::file_time_type>;
 using NameMap = std::unordered_map<std::string, std::vector<NameEntry>>;
 
 // ==================== 函数声明 ====================
 
-void print_usage(const char *program_name);
-AppConfig parse_args(int argc, char *argv[]);
-NameMap collect_name_map(const std::string &path_str);
-void print_results(const NameMap &name_map,
+void print_usage(const char* program_name);
+AppConfig parse_args(int argc, char* argv[]);
+NameMap collect_name_map(const std::string& path_str,
+                         std::unordered_map<std::string, std::uintmax_t>&
+                             size_cache);
+void print_results(const NameMap& name_map,
                    bool print_max,
                    bool print_all,
                    bool use_print0);
 
 // ==================== 函数实现 ====================
 
-void print_usage(const char *program_name) {
+void print_usage(const char* program_name) {
   std::cout << "Usage: " << program_name << " [OPTIONS] <directory>\n"
             << "\nOptions:\n"
             << "  -h              Show this help message\n"
@@ -50,11 +53,11 @@ void print_usage(const char *program_name) {
                "size.\n";
 }
 
-AppConfig parse_args(int argc, char *argv[]) {
+AppConfig parse_args(int argc, char* argv[]) {
   AppConfig config;
 
   for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
+    std::string_view arg = argv[i];
     if (arg == "-h") {
       print_usage(argv[0]);
       std::exit(0);
@@ -78,34 +81,55 @@ AppConfig parse_args(int argc, char *argv[]) {
   return config;
 }
 
-NameMap collect_name_map(const std::string &path_str) {
+NameMap collect_name_map(const std::string& path_str,
+                         std::unordered_map<std::string, std::uintmax_t>&
+                             size_cache) {
   NameMap name_map;
 
-  for (const auto &entry : fs::directory_iterator(path_str)) {
+  std::error_code ec;
+  for (const auto& entry : fs::directory_iterator(path_str, ec)) {
+    if (ec) {
+      std::cerr << "Warning: Error iterating directory: " << ec.message()
+                << "\n";
+      ec.clear();
+      continue;
+    }
+
     if (entry.is_directory()) {
-      fs::path dir_path = entry.path();
-      std::string folder_name = dir_path.filename().string();
-      std::string chinese_name = common::extract_bracket_content(folder_name);
+      const fs::path dir_path = entry.path();
+      const std::string folder_name = dir_path.filename().string();
+      const std::string chinese_name =
+          common::extract_bracket_content(folder_name);
 
       if (!chinese_name.empty()) {
-        uintmax_t total_size = common::calculate_total_size(dir_path);
-        fs::file_time_type mtime = fs::last_write_time(dir_path);
-        name_map[chinese_name].emplace_back(dir_path, total_size, mtime);
+        try {
+          const std::uintmax_t total_size =
+              common::calculate_total_size_cached(dir_path, size_cache);
+          const fs::file_time_type mtime = fs::last_write_time(dir_path);
+          name_map[chinese_name].emplace_back(dir_path, total_size, mtime);
+        } catch (const fs::filesystem_error& e) {
+          std::cerr << "Warning: Cannot access directory '" << dir_path
+                    << "': " << e.what() << "\n";
+        }
       }
     }
+  }
+
+  if (ec) {
+    std::cerr << "Warning: Error iterating directory: " << ec.message() << "\n";
   }
 
   return name_map;
 }
 
-void print_results(const NameMap &name_map,
+void print_results(const NameMap& name_map,
                    bool print_max,
                    bool print_all,
                    bool use_print0) {
-  for (const auto &[chinese_name, entries] : name_map) {
+  for (const auto& [chinese_name, entries] : name_map) {
     if (entries.size() > 1) {
       if (print_all) {
-        for (const auto &[path, size, mtime] : entries) {
+        for (const auto& [path, size, mtime] : entries) {
           if (use_print0) {
             std::cout << path.string();
             std::cout.put('\0');
@@ -116,14 +140,14 @@ void print_results(const NameMap &name_map,
           }
         }
       } else {
-        auto extreme_entry =
+        const auto extreme_entry =
             print_max ? std::ranges::max_element(
                             entries,
-                            [](const auto &a, const auto &b) {
+                            [](const auto& a, const auto& b) {
                               return std::get<1>(a) < std::get<1>(b);
                             })
                       : std::ranges::min_element(
-                            entries, [](const auto &a, const auto &b) {
+                            entries, [](const auto& a, const auto& b) {
                               return std::get<1>(a) < std::get<1>(b);
                             });
         if (use_print0) {
@@ -142,8 +166,8 @@ void print_results(const NameMap &name_map,
 
 // ==================== main ====================
 
-int main(int argc, char *argv[]) {
-  AppConfig config = parse_args(argc, argv);
+int main(int argc, char* argv[]) {
+  const AppConfig config = parse_args(argc, argv);
 
   if (!fs::exists(config.path)) {
     std::cerr << "Error: Path does not exist: '" << config.path << "'\n";
@@ -155,10 +179,11 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  std::unordered_map<std::string, std::uintmax_t> size_cache;
   NameMap name_map;
   try {
-    name_map = collect_name_map(config.path);
-  } catch (const fs::filesystem_error &e) {
+    name_map = collect_name_map(config.path, size_cache);
+  } catch (const fs::filesystem_error& e) {
     std::cerr << "Error: Failed to read directory: " << e.what() << "\n";
     return 1;
   }

@@ -1,3 +1,5 @@
+#include "common/common.hpp"
+
 #include <getopt.h>
 
 #include <algorithm>
@@ -5,11 +7,10 @@
 #include <iostream>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
-#include "common/common.hpp"
 
 namespace fs = std::filesystem;
 
@@ -26,16 +27,19 @@ class UnionFind {
     }
   }
 
-  [[nodiscard]] size_t find(size_t x) {
-    if (parent_[x] != x) {
-      parent_[x] = find(parent_[x]);
+  /// 查找根节点（迭代实现，带路径压缩）
+  [[nodiscard]] size_t find(size_t x) noexcept {
+    while (parent_[x] != x) {
+      parent_[x] = parent_[parent_[x]];  // 路径压缩
+      x = parent_[x];
     }
-    return parent_[x];
+    return x;
   }
 
-  void unite(size_t x, size_t y) {
-    size_t px = find(x);
-    size_t py = find(y);
+  /// 合并两个集合
+  void unite(size_t x, size_t y) noexcept {
+    const size_t px = find(x);
+    const size_t py = find(y);
     if (px == py) {
       return;
     }
@@ -46,7 +50,7 @@ class UnionFind {
       parent_[py] = px;
     } else {
       parent_[py] = px;
-      rank_[px]++;
+      ++rank_[px];
     }
   }
 };
@@ -60,27 +64,28 @@ struct AppConfig {
 
 // ==================== 函数声明 ====================
 
-void print_usage(const char *program_name);
-AppConfig parse_args(int argc, char *argv[]);
+void print_usage(const char* program_name);
+AppConfig parse_args(int argc, char* argv[]);
 std::unordered_map<std::string, std::vector<fs::path>> collect_folders(
-    const std::vector<std::string> &dir_paths);
+    const std::vector<std::string>& dir_paths);
 std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
-    const std::vector<std::string> &unique_names,
+    const std::vector<std::string>& unique_names,
     double threshold,
-    UnionFind &uf,
-    std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
-        &similarity_cache);
+    UnionFind& uf,
+    std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>&
+        similarity_cache);
 void print_groups(
-    const std::unordered_map<size_t, std::vector<std::string>> &groups,
-    const std::unordered_map<std::string, size_t> &name_to_index,
-    const std::unordered_map<std::string, std::vector<fs::path>> &name_to_paths,
-    const std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
-        &similarity_cache,
-    double threshold);
+    const std::unordered_map<size_t, std::vector<std::string>>& groups,
+    const std::unordered_map<std::string, size_t>& name_to_index,
+    const std::unordered_map<std::string, std::vector<fs::path>>& name_to_paths,
+    const std::unordered_map<std::pair<size_t, size_t>, double,
+                             common::PairHash>& similarity_cache,
+    double threshold,
+    std::unordered_map<std::string, std::uintmax_t>& size_cache);
 
 // ==================== 函数实现 ====================
 
-void print_usage(const char *program_name) {
+void print_usage(const char* program_name) {
   std::cout << "Usage: " << program_name
             << " [OPTIONS] [directory1 [directory2 ...]]\n"
             << "\nOptions:\n"
@@ -95,7 +100,7 @@ void print_usage(const char *program_name) {
             << "  Only pairs with similarity >= threshold are displayed.\n";
 }
 
-AppConfig parse_args(int argc, char *argv[]) {
+AppConfig parse_args(int argc, char* argv[]) {
   AppConfig config;
   int opt = 0;
 
@@ -108,8 +113,11 @@ AppConfig parse_args(int argc, char *argv[]) {
               << "Error: Similarity threshold must be between 0.0 and 1.0\n";
           std::exit(1);
         }
-      } catch (...) {
+      } catch (const std::invalid_argument&) {
         std::cerr << "Error: Invalid threshold value: " << optarg << "\n";
+        std::exit(1);
+      } catch (const std::out_of_range&) {
+        std::cerr << "Error: Threshold value out of range: " << optarg << "\n";
         std::exit(1);
       }
     } else if (opt == 'h') {
@@ -135,10 +143,10 @@ AppConfig parse_args(int argc, char *argv[]) {
 }
 
 std::unordered_map<std::string, std::vector<fs::path>> collect_folders(
-    const std::vector<std::string> &dir_paths) {
+    const std::vector<std::string>& dir_paths) {
   std::unordered_map<std::string, std::vector<fs::path>> name_to_paths;
 
-  for (const auto &dir_path : dir_paths) {
+  for (const auto& dir_path : dir_paths) {
     if (!fs::exists(dir_path)) {
       std::cerr << "Warning: Directory does not exist: " << dir_path << "\n";
       continue;
@@ -152,21 +160,21 @@ std::unordered_map<std::string, std::vector<fs::path>> collect_folders(
     fs::path abs_parent;
     try {
       abs_parent = fs::absolute(dir_path);
-    } catch (const fs::filesystem_error &e) {
+    } catch (const fs::filesystem_error& e) {
       std::cerr << "Warning: Cannot get absolute path for: " << dir_path
                 << " -> " << e.what() << "\n";
       continue;
     }
 
     try {
-      for (const auto &entry : fs::directory_iterator(dir_path)) {
+      for (const auto& entry : fs::directory_iterator(dir_path)) {
         if (entry.is_directory()) {
-          fs::path name = entry.path().filename();
-          fs::path full_path = abs_parent / name;
+          const fs::path name = entry.path().filename();
+          const fs::path full_path = abs_parent / name;
           name_to_paths[name.string()].push_back(full_path);
         }
       }
-    } catch (const fs::filesystem_error &e) {
+    } catch (const fs::filesystem_error& e) {
       std::cerr << "Warning: Error reading directory: " << dir_path << " -> "
                 << e.what() << "\n";
     }
@@ -176,14 +184,14 @@ std::unordered_map<std::string, std::vector<fs::path>> collect_folders(
 }
 
 std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
-    const std::vector<std::string> &unique_names,
+    const std::vector<std::string>& unique_names,
     double threshold,
-    UnionFind &uf,
-    std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
-        &similarity_cache) {
+    UnionFind& uf,
+    std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>&
+        similarity_cache) {
   for (size_t i = 0; i < unique_names.size(); ++i) {
     for (size_t j = i + 1; j < unique_names.size(); ++j) {
-      double sim = common::levenshtein_similarity_cached(
+      const double sim = common::levenshtein_similarity_cached(
           i, j, unique_names[i], unique_names[j], similarity_cache);
       if (sim >= threshold) {
         uf.unite(i, j);
@@ -193,7 +201,7 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
 
   std::unordered_map<size_t, std::vector<std::string>> groups;
   for (size_t i = 0; i < unique_names.size(); ++i) {
-    size_t root = uf.find(i);
+    const size_t root = uf.find(i);
     groups[root].push_back(unique_names[i]);
   }
 
@@ -201,15 +209,16 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
 }
 
 void print_groups(
-    const std::unordered_map<size_t, std::vector<std::string>> &groups,
-    const std::unordered_map<std::string, size_t> &name_to_index,
-    const std::unordered_map<std::string, std::vector<fs::path>> &name_to_paths,
-    const std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
-        &similarity_cache,
-    double threshold) {
+    const std::unordered_map<size_t, std::vector<std::string>>& groups,
+    const std::unordered_map<std::string, size_t>& name_to_index,
+    const std::unordered_map<std::string, std::vector<fs::path>>& name_to_paths,
+    const std::unordered_map<std::pair<size_t, size_t>, double,
+                             common::PairHash>& similarity_cache,
+    double threshold,
+    std::unordered_map<std::string, std::uintmax_t>& size_cache) {
   bool found = false;
 
-  for (const auto &group : std::views::values(groups)) {
+  for (const auto& group : std::views::values(groups)) {
     if (group.size() < 2) {
       continue;
     }
@@ -218,28 +227,30 @@ void print_groups(
     double min_sim = 1.0;
     for (size_t i = 0; i < group.size(); ++i) {
       for (size_t j = i + 1; j < group.size(); ++j) {
-        size_t idx1 = name_to_index.at(group[i]);
-        size_t idx2 = name_to_index.at(group[j]);
-        size_t lo = std::min(idx1, idx2);
-        size_t hi = std::max(idx1, idx2);
-        double sim = similarity_cache.contains({lo, hi})
-                         ? similarity_cache.at({lo, hi})
-                         : common::levenshtein_similarity(group[i], group[j]);
+        const size_t idx1 = name_to_index.at(group[i]);
+        const size_t idx2 = name_to_index.at(group[j]);
+        const size_t lo = std::min(idx1, idx2);
+        const size_t hi = std::max(idx1, idx2);
+        const double sim =
+            similarity_cache.contains({lo, hi})
+                ? similarity_cache.at({lo, hi})
+                : common::levenshtein_similarity(group[i], group[j]);
         min_sim = std::min(min_sim, sim);
       }
     }
     std::cout << "Group (min similarity: " << min_sim << "):\n";
 
-    for (const auto &name : group) {
+    for (const auto& name : group) {
       std::cout << "  \"" << name << "\":\n";
-      for (const auto &path : name_to_paths.at(name)) {
+      for (const auto& path : name_to_paths.at(name)) {
         try {
-          auto mtime = fs::last_write_time(path);
-          std::uintmax_t size = common::calculate_total_size(path);
+          const auto mtime = fs::last_write_time(path);
+          const std::uintmax_t size =
+              common::calculate_total_size_cached(path, size_cache);
           std::cout << "    \"" << path.string() << "\" "
                     << common::format_time(mtime) << " "
                     << common::format_size(size) << "\n";
-        } catch (const fs::filesystem_error &e) {
+        } catch (const fs::filesystem_error& e) {
           std::cout << "    \"" << path.string() << "\" (error: " << e.what()
                     << ")\n";
         }
@@ -256,13 +267,13 @@ void print_groups(
 
 // ==================== main ====================
 
-int main(int argc, char *argv[]) {
-  AppConfig config = parse_args(argc, argv);
+int main(int argc, char* argv[]) {
+  const AppConfig config = parse_args(argc, argv);
 
-  auto name_to_paths = collect_folders(config.directories);
+  const auto name_to_paths = collect_folders(config.directories);
 
   std::vector<std::string> unique_names;
-  for (const auto &name : std::views::keys(name_to_paths)) {
+  for (const auto& name : std::views::keys(name_to_paths)) {
     unique_names.push_back(name);
   }
 
@@ -284,20 +295,21 @@ int main(int argc, char *argv[]) {
       similarity_cache;
   UnionFind uf(unique_names.size());
 
-  auto groups = build_similarity_groups(unique_names, config.threshold, uf,
-                                         similarity_cache);
+  const auto groups = build_similarity_groups(
+      unique_names, config.threshold, uf, similarity_cache);
 
   bool found = false;
-  for (const auto &group : std::views::values(groups)) {
+  for (const auto& group : std::views::values(groups)) {
     if (group.size() >= 2) {
       found = true;
       break;
     }
   }
 
+  std::unordered_map<std::string, std::uintmax_t> size_cache;
   if (found) {
     print_groups(groups, name_to_index, name_to_paths, similarity_cache,
-                 config.threshold);
+                 config.threshold, size_cache);
   } else {
     std::cout << "No folder name groups with similarity >= " << config.threshold
               << "\n";

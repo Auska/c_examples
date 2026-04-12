@@ -1,10 +1,16 @@
 #define CATCH_CONFIG_MAIN
-#include <chrono>
-#include <filesystem>
-#include <fstream>
 
 #include "common/common.hpp"
 #include "external/catch_amalgamated.hpp"
+
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 using Catch::Approx;
 namespace fs = std::filesystem;
@@ -102,13 +108,13 @@ TEST_CASE("calculate_total_size handles directories", "[common]") {
 
 TEST_CASE("calculate_total_size_cached works correctly", "[common]") {
   SECTION("non-existent directory returns 0") {
-    std::unordered_map<std::string, uintmax_t> cache;
+    std::unordered_map<std::string, std::uintmax_t> cache;
     REQUIRE(common::calculate_total_size_cached("/non/existent/path/12345",
                                                 cache) == 0);
   }
 
   SECTION("cache is populated") {
-    std::unordered_map<std::string, uintmax_t> cache;
+    std::unordered_map<std::string, std::uintmax_t> cache;
     (void)common::calculate_total_size_cached("/non/existent/path/12345",
                                               cache);
     REQUIRE(cache.size() == 1);
@@ -349,9 +355,9 @@ TEST_CASE_METHOD(TempDirectoryFixture, "calculate_total_size_cached works with r
   SECTION("cache prevents recalculation") {
     create_file(temp_dir_ / "test.txt", "cached_content");
 
-    std::unordered_map<std::string, uintmax_t> cache;
-    uintmax_t first = common::calculate_total_size_cached(temp_dir_, cache);
-    uintmax_t second = common::calculate_total_size_cached(temp_dir_, cache);
+    std::unordered_map<std::string, std::uintmax_t> cache;
+    const std::uintmax_t first = common::calculate_total_size_cached(temp_dir_, cache);
+    const std::uintmax_t second = common::calculate_total_size_cached(temp_dir_, cache);
 
     REQUIRE(first == second);
     REQUIRE(first >= 13);  // "cached_content" length (may vary by platform)
@@ -361,7 +367,7 @@ TEST_CASE_METHOD(TempDirectoryFixture, "calculate_total_size_cached works with r
   SECTION("cache key is canonical path") {
     create_file(temp_dir_ / "test.txt", "x");
 
-    std::unordered_map<std::string, uintmax_t> cache;
+    std::unordered_map<std::string, std::uintmax_t> cache;
     (void)common::calculate_total_size_cached(temp_dir_, cache);
 
     // The cache key should be a canonical path
@@ -380,7 +386,7 @@ TEST_CASE_METHOD(TempDirectoryFixture, "calculate_total_size_cached works with r
 
 TEST_CASE("format_size boundary conditions", "[common]") {
   SECTION("maximum uintmax_t") {
-    REQUIRE(!common::format_size(std::numeric_limits<uintmax_t>::max()).empty());
+    REQUIRE(!common::format_size(std::numeric_limits<std::uintmax_t>::max()).empty());
   }
 
   SECTION("size exactly at unit boundaries") {
