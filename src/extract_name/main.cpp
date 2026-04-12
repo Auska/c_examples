@@ -99,7 +99,7 @@ NameMap collect_name_map(const std::string& path_str,
       const fs::path dir_path = entry.path();
       const std::string folder_name = dir_path.filename().string();
       const std::string chinese_name =
-          common::extract_bracket_content(folder_name);
+          common::extract_name_with_season(folder_name);
 
       if (!chinese_name.empty()) {
         try {

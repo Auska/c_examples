@@ -481,3 +481,75 @@ TEST_CASE("PairHash collision resistance", "[common]") {
     REQUIRE(hashes.size() > 2000);
   }
 }
+
+// ==================== extract_season 测试 ====================
+
+TEST_CASE("extract_season extracts season correctly", "[common]") {
+  SECTION("S01 format") {
+    REQUIRE(common::extract_season("[雪国列车].Snowpiercer.S01.2020") == "S01");
+    REQUIRE(common::extract_season("[雪国列车].Snowpiercer.S02.2021") == "S02");
+    REQUIRE(common::extract_season("Show.Name.S12.1080p") == "S12");
+  }
+
+  SECTION("s01 lowercase format") {
+    REQUIRE(common::extract_season("Show.s01.1080p") == "S01");
+    REQUIRE(common::extract_season("Show.s99.720p") == "S99");
+  }
+
+  SECTION("Season N format") {
+    REQUIRE(common::extract_season("[权力的游戏].Game.of.Thrones.Season.1.1080p") == "S01");
+    REQUIRE(common::extract_season("Show.Season.5.720p") == "S05");
+    REQUIRE(common::extract_season("Show.Season5.720p") == "S05");
+    REQUIRE(common::extract_season("Show.Season_3.720p") == "S03");
+  }
+
+  SECTION("第N季 format (Chinese)") {
+    REQUIRE(common::extract_season("[绝命毒师].Breaking.Bad.第3季.1080p") == "S03");
+    REQUIRE(common::extract_season("Show.第1季.720p") == "S01");
+    REQUIRE(common::extract_season("Show.第12季.720p") == "S12");
+  }
+
+  SECTION("no season") {
+    REQUIRE(common::extract_season("[无季数].Some.Movie.2020.1080p").empty());
+    REQUIRE(common::extract_season("Movie.Name.2020.1080p").empty());
+  }
+
+  SECTION("single digit season") {
+    REQUIRE(common::extract_season("Show.S1.1080p") == "S01");
+    REQUIRE(common::extract_season("Show.Season.2.1080p") == "S02");
+    REQUIRE(common::extract_season("Show.第5季.1080p") == "S05");
+  }
+
+  SECTION("double digit season") {
+    REQUIRE(common::extract_season("Show.S10.1080p") == "S10");
+    REQUIRE(common::extract_season("Show.Season.15.1080p") == "S15");
+  }
+}
+
+// ==================== extract_name_with_season 测试 ====================
+
+TEST_CASE("extract_name_with_season combines name and season", "[common]") {
+  SECTION("name with season") {
+    REQUIRE(common::extract_name_with_season("[雪国列车].Snowpiercer.S01.2020") == "雪国列车 S01");
+    REQUIRE(common::extract_name_with_season("[雪国列车].Snowpiercer.S02.2021") == "雪国列车 S02");
+    REQUIRE(common::extract_name_with_season("[雪国列车].Snowpiercer.S03.2022") == "雪国列车 S03");
+  }
+
+  SECTION("name without season") {
+    REQUIRE(common::extract_name_with_season("[电影名].Some.Movie.2020.1080p") == "电影名");
+  }
+
+  SECTION("different season formats") {
+    REQUIRE(common::extract_name_with_season("[权力的游戏].Game.of.Thrones.Season.1") == "权力的游戏 S01");
+    REQUIRE(common::extract_name_with_season("[绝命毒师].Breaking.Bad.第3季") == "绝命毒师 S03");
+  }
+
+  SECTION("no brackets returns empty") {
+    REQUIRE(common::extract_name_with_season("Show.Name.S01.1080p").empty());
+  }
+
+  SECTION("complex filenames") {
+    REQUIRE(common::extract_name_with_season("[雪国列车].Snowpiercer.S01.2020.1080p.NF.WEB-DL.x264") == "雪国列车 S01");
+    REQUIRE(common::extract_name_with_season("[黑镜].Black.Mirror.S05.1080p") == "黑镜 S05");
+  }
+}
