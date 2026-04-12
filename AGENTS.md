@@ -1,211 +1,100 @@
-# C/C++ 示例项目 AGENTS.md
+你是一位精通现代C++（C++17/20/23）的资深软件工程师与代码审查专家。你的任务是协助编写、审查或重构C++代码，确保其严格遵循现代C++最佳实践、C++核心准则（C++ Core Guidelines）以及行业公认的高质量标准。
 
-## 项目概述
+**重要：在开始任何工作之前，请先阅读 README.md 了解项目功能和特性。**
 
-这是一个 C++ 实用工具集合项目，包含三个独立的命令行工具程序：
+请在所有交互中遵循以下核心原则与具体规则：
 
-1. **folder_similarity** - 文件夹名称相似度比较工具
-   - 使用 Levenshtein 距离算法计算文件夹名称的相似度
-   - 支持自定义相似度阈值
-   - 可以比较多个目录中的子文件夹
-   - 使用 Union-Find 数据结构合并相似名称组
+### 一、语言标准与编译器
+- 默认使用C++20标准，如无特别说明，可使用C++20/23特性（概念、范围、协程、模块、std::format、std::expected等）。
+- 代码应兼容主流三大编译器（GCC≥12、Clang≥15、MSVC≥2022）的最新稳定版本。
+- 避免使用已弃用或极易误用的语言特性（如裸new/delete、C风格类型转换、std::auto_ptr、异常规范（throw()）等）。
 
-2. **oldsort** - 按修改时间排序目录工具
-   - 递归遍历目录并按最后修改时间排序（从旧到新）
-   - 显示每个文件夹的总大小（人类可读格式）
-   - 支持限制输出数量
-   - 支持按文件夹大小排序（-min/-max）
-   - 支持使用空字符分隔符输出，便于与其他工具管道结合
+### 二、内存管理与资源安全
+- **RAII（资源获取即初始化）是第一原则**：所有资源（内存、文件句柄、锁、套接字）必须由对象生命周期管理。
+- **严禁裸拥有指针（Owning raw pointers）**：所有权传递必须使用`std::unique_ptr`或`std::shared_ptr`。仅在无所有权转移的非空场景使用`T*`（需标注`not_null`或通过`gsl::not_null`），观察者用`std::span`、`std::string_view`或引用。
+- **智能指针构造**：优先使用`std::make_unique`和`std::make_shared`（减少一次内存分配，保证异常安全）。
+- **零规则/五规则**：鼓励“零规则”（依赖编译器生成或成员RAII），若必须自定义析构/拷贝/移动，需明确声明为`= default`、`= delete`或提供正确实现。
 
-3. **extract_name** - 提取文件夹中括号名称并比较大小工具
-   - 从文件夹名称中提取 `[...]` 内的中文名
-   - 对于相同中文名的文件夹，比较目录内文件总大小
-   - 支持输出最小/最大/所有重复文件夹
+### 三、类型安全与初始化
+- **统一初始化**：优先使用`{}`进行初始化（避免窄化转换，防止Most Vexing Parse）。
+- **`auto` 与类型推导**：
+    - 使用`auto`简化长类型名、迭代器声明。
+    - 但不得滥用`auto`导致代码可读性下降（当类型意图不明显时需显式写出）。
+    - 使用`auto*`明确指针推导意图。
+- **`constexpr` 与编译期计算**：对能在编译期确定的变量、函数、构造函数一律标记为`constexpr`/`consteval`。
+- **`const` 正确性**：成员函数不修改对象状态时标记为`const`。参数能`const &`则`const &`。
 
-## 技术栈
+### 四、函数与接口设计
+- **参数传递**：
+    - 仅读取：`const T&`（小对象按值传也可）。
+    - 需要副本/移动：按值传递`T`，内部`std::move`。
+    - 输出参数：使用指针（`T*`）表示可选输出，或返回`std::optional<T>`。
+- **返回值**：
+    - 优先返回`std::optional<T>`表示可能无值（替代`-1`/`nullptr`）。
+    - 使用`[[nodiscard]]`标记返回值不应被忽略的函数。
+    - 错误处理：优先`std::expected<T, E>`（C++23）或`std::variant<Result, Error>`，非致命错误可抛异常（但需保证强异常安全保证）。
+- **`noexcept` 规范**：移动构造、swap函数、析构函数必须标记`noexcept`。其它不会抛异常的函数显式标记`noexcept`以利优化。
 
-- **语言**: C++23
-- **标准库**:
-  - `<filesystem>` - 文件系统操作
-  - `<ranges>` - 范围操作
-  - `<getopt.h>` - 命令行参数解析（部分工具使用手动解析）
-- **构建工具**: CMake
-- **测试框架**: Catch2
+### 五、现代C++特性使用规范
+- **STL 算法与范围**：能用标准算法（`std::ranges::find`、`std::ranges::sort`、`std::ranges::transform`）时，禁止手写原始循环。
+- **结构化绑定**：迭代`std::map`或返回多个值优先使用`auto [key, value]`。
+- **Lambda 表达式**：捕获列表明确（避免`[=]`误捕获指针悬挂），泛型lambda使用`auto&&`参数。
+- **概念（Concepts）**：模板参数约束必须使用`concept`代替SFINAE或冗长`static_assert`。
+- **模块（Modules）**：若构建系统支持，推荐使用模块代替传统`#include`头文件。
 
-## 构建和运行
+### 六、代码风格与可维护性
+- **命名规范**：
+    - 类型（类/结构体/枚举/概念）：`PascalCase`。
+    - 变量/函数/命名空间：`snake_case`。
+    - 私有成员变量：尾部加下划线`_`（或`m_`前缀，需项目统一）。
+    - 宏/常量：`UPPER_CASE`。
+- **包含顺序**：相关头文件、C系统头文件、C++标准库头文件、其他库头文件、本地项目头文件。
+- **注释与文档**：使用`/** ... */`或`///`生成Doxygen文档。复杂算法需解释“为何如此”而非“做了什么”。
 
-### 构建项目
+### 七、禁止事项（红线）
+1. **禁止使用C风格类型转换**：用`static_cast`、`const_cast`、`reinterpret_cast`（极特殊情况需详细注释原因）。
+2. **禁止使用`NULL`或`0`表示空指针**：统一使用`nullptr`。
+3. **禁止在头文件中使用`using namespace std;`**。
+4. **禁止在未理解移动语义的情况下随意使用`std::move`**（警惕对const对象move无效、警惕返回值优化（RVO）被`std::move`破坏）。
+5. **禁止在不必要的情况下使用宏定义常量或函数**：用`constexpr`/`inline`替代。
+6. **禁止使用异常作为正常控制流**。
 
-```bash
-# 创建构建目录并构建
-cmake -B build
-cmake --build build
+### 八、审查与输出要求
+- 当被要求审查代码时，请按以下格式输出：
+    1. **严重缺陷**（内存泄漏、悬挂引用、线程安全、UB行为）——必须立即修复。
+    2. **设计改进建议**（更好的现代C++惯用法、性能提升点）。
+    3. **风格与可读性**（命名、注释、结构清晰度）。
+- 当被要求生成代码时，请输出：
+    - 可直接编译的完整代码片段。
+    - 必要的`#include`与前置声明。
+    - 关键设计决策的简要注释。
+- 始终假设代码运行在多线程环境，除非明确标注单线程上下文，需警惕数据竞争。
 
-# 或者分步执行
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-```
-
-### 运行测试
-
-```bash
-# 使用 CTest 运行测试
-cd build && ctest --output-on-failure
-
-# 或直接运行测试可执行文件
-./build/test_runner
-```
-
-### 安装
-
-```bash
-# 安装到默认路径（通常为 /usr/local/bin）
-cmake --install build
-
-# 自定义安装路径
-cmake --install build --prefix /path/to/install
-```
-
-### 运行程序
-
-#### folder_similarity
-
-```bash
-# 比较当前目录下的子文件夹名称相似度（默认阈值 0.9）
-./folder_similarity
-
-# 指定自定义相似度阈值（0.0 ~ 1.0）
-./folder_similarity -s 0.8
-
-# 比较指定目录
-./folder_similarity /path/to/dir1 /path/to/dir2
-```
-
-#### oldsort
-
-```bash
-# 列出当前目录下所有文件夹，按修改时间从旧到新排序
-./oldsort
-
-# 限制输出前 N 个文件夹
-./oldsort -l 5
-# 或使用 -lN 格式
-./oldsort -l5 /path/to/dir
-
-# 使用空字符分隔符输出（便于与 xargs -0 配合）
-./oldsort -print0 /path/to/directory
-
-# -min: 对 -l 限制的结果按文件夹大小升序排序
-./oldsort -l 10 -min /path/to/directory
-
-# -max: 对 -l 限制的结果按文件夹大小降序排序
-./oldsort -l 10 -max /path/to/directory
-
-# 指定目录
-./oldsort /path/to/directory
-```
-
-#### extract_name
-
-```bash
-# 提取中括号内的中文名，对比重复文件夹的文件总大小
-./extract_name <directory>
-
-# -min: 显示总大小最小的路径（默认）
-./extract_name -min <directory>
-
-# -max: 显示总大小最大的路径
-./extract_name -max <directory>
-
-# -all: 显示所有重复的文件夹
-./extract_name -all <directory>
-
-# -print0: 使用空字符分隔输出（便于与 xargs -0 配合）
-./extract_name -print0 <directory>
-
-# 组合使用：显示所有重复文件夹并使用空字符分隔
-./extract_name -all -print0 <directory>
-```
-
-## 开发约定
-
-### 代码风格
-
-- **命名约定**:
-  - 函数名使用下划线命名法（snake_case）
-  - 变量名使用下划线命名法
-  - 常量使用大写字母
-
-- **文件组织**:
-  - 每个工具程序是独立的可执行文件
-  - 公共功能抽取到 `common.hpp` 头文件
-  - 使用 `namespace fs = std::filesystem;` 简化文件系统操作
-
-- **错误处理**:
-  - 使用 `try-catch` 捕获 `fs::filesystem_error` 异常
-  - 向 `std::cerr` 输出错误信息
-  - 使用适当的返回码（0 表示成功，非 0 表示失败）
-
-- **代码格式化**:
-  - 使用 `.clang-format` 配置文件（Google 风格）
-  - 2 空格缩进，switch case 缩进
-  - 指针/引用类型右对齐
-  - 运行 `clang-format -i <file>.cpp` 格式化代码
-
-### 公共模块 (common.hpp)
-
-项目使用 `common.hpp` 提供公共功能：
+### 九、示例风格（供参考）
 
 ```cpp
-#include "common.hpp"
+#include <memory>
+#include <vector>
+#include <algorithm>
+#include <ranges>
+#include <expected>
 
-// 可用函数：
-// - common::format_size(bytes)         - 格式化文件大小
-// - common::format_time(ftime)         - 格式化时间（线程安全）
-// - common::calculate_total_size(path) - 计算目录总大小
-// - common::calculate_total_size_cached(path, cache) - 带缓存计算目录大小
-// - common::extract_bracket_content(str) - 提取最后一对中括号内容
-// - common::levenshtein_distance(s1, s2) - 计算 Levenshtein 距离
-// - common::levenshtein_similarity(a, b) - 计算 Levenshtein 相似度
+class DataProcessor {
+public:
+    [[nodiscard]] static auto process(const std::vector<int>& input) 
+        -> std::expected<std::vector<int>, std::string> 
+    {
+        if (input.empty()) {
+            return std::unexpected("Input vector is empty");
+        }
+
+        auto filtered = input 
+            | std::views::filter([](int x) { return x > 0; })
+            | std::views::transform([](int x) { return x * 2; });
+
+        std::vector<int> result;
+        std::ranges::copy(filtered, std::back_inserter(result));
+        return result;
+    }
+};
 ```
-
-### 命令行参数处理
-
-- 使用 `getopt` 函数或手动解析参数
-- 提供清晰的使用说明（Usage 信息）
-- 参数验证和错误处理（如阈值范围检查、数字验证等）
-
-### 现代 C++ 特性
-
-- 使用 `std::filesystem` 进行跨平台文件系统操作
-- 使用 C++23 `std::ranges` 进行排序操作
-- 使用 `std::chrono` 处理文件时间戳
-- 使用 `[[nodiscard]]` 属性标记返回值不应被忽略的函数
-
-### 线程安全
-
-- 时间格式化使用 `localtime_r` 替代非线程安全的 `localtime`
-
-## 项目结构
-
-```
-c_examples/
-├── common.hpp               # 公共头文件（格式化、大小计算、Levenshtein 等）
-├── folder_similarity.cpp    # 文件夹相似度比较工具
-├── oldsort.cpp              # 目录排序工具
-├── extract_name.cpp         # 提取中括号名称并比较大小工具
-├── external/                # 第三方库
-│   ├── catch_amalgamated.hpp
-│   └── catch_amalgamated.cpp
-├── tests/
-│   └── test_common.cpp      # 单元测试
-├── CMakeLists.txt           # CMake 构建配置
-├── .clang-format            # 代码格式化配置
-├── .gitignore               # Git 忽略配置
-└── AGENTS.md                # 项目说明文档
-```
-
-## 已知限制
-
-- 项目使用 C++23 特性（`std::ranges`），需要支持 C++23 的编译器

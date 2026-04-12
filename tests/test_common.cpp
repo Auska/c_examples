@@ -2,7 +2,7 @@
 #include <filesystem>
 #include <fstream>
 
-#include "common.hpp"
+#include "common/common.hpp"
 #include "external/catch_amalgamated.hpp"
 
 using Catch::Approx;

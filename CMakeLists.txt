@@ -9,9 +9,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_options(-Wall -Wextra)
 
 # 可执行文件
-add_executable(folder_similarity folder_similarity.cpp)
-add_executable(oldsort oldsort.cpp)
-add_executable(extract_name extract_name.cpp)
+add_executable(folder_similarity src/folder_similarity/main.cpp)
+add_executable(oldsort src/oldsort/main.cpp)
+add_executable(extract_name src/extract_name/main.cpp)
+
+# 设置 include 目录
+target_include_directories(folder_similarity PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(oldsort PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(extract_name PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # 安装配置
 include(GNUInstallDirs)
@@ -22,6 +27,6 @@ install(TARGETS folder_similarity oldsort extract_name
 enable_testing()
 
 add_executable(test_runner tests/test_common.cpp external/catch_amalgamated.cpp)
-target_include_directories(test_runner PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(test_runner PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
 
 add_test(NAME CommonTests COMMAND test_runner)
