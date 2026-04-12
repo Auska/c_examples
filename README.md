@@ -89,11 +89,14 @@ cmake --install build
 # 按修改时间排序（从新到旧）
 ./extract_name -all -tr /path/to/media
 
+# 限制每组输出行数
+./extract_name -all -l 3 /path/to/media
+
 # 使用空字符分隔输出
 ./extract_name -print0 /path/to/media | xargs -0 -I{} ls -ld '{}'
 ```
 
-**选项：** `-min` 最小（默认），`-max` 最大，`-all` 全部，`-print0` 空字符分隔，`-t` 按时间升序，`-tr` 按时间降序
+**选项：** `-min` 最小（默认），`-max` 最大，`-all` 全部，`-print0` 空字符分隔，`-t` 按时间升序，`-tr` 按时间降序，`-l <N>` 限制每组的输出行数
 
 ## 项目结构
 

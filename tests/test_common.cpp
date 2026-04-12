@@ -553,3 +553,71 @@ TEST_CASE("extract_name_with_season combines name and season", "[common]") {
     REQUIRE(common::extract_name_with_season("[黑镜].Black.Mirror.S05.1080p") == "黑镜 S05");
   }
 }
+
+// ==================== extract_season 边界测试 ====================
+
+TEST_CASE("extract_season edge cases", "[common]") {
+  SECTION("season number at boundaries") {
+    REQUIRE(common::extract_season("Show.S01.1080p") == "S01");
+    REQUIRE(common::extract_season("Show.S99.1080p") == "S99");
+  }
+
+  SECTION("season in middle of filename") {
+    REQUIRE(common::extract_season("Prefix.S05.Middle.Suffix") == "S05");
+  }
+
+  SECTION("multiple season patterns - returns first match") {
+    // 应该返回第一个匹配的模式
+    REQUIRE_FALSE(common::extract_season("Show.S01.S02").empty());
+  }
+
+  SECTION("season with underscore separator") {
+    REQUIRE(common::extract_season("Show_Name_S03_1080p") == "S03");
+  }
+
+  SECTION("season with dot separator") {
+    REQUIRE(common::extract_season("Show.Name.S04.1080p") == "S04");
+  }
+
+  SECTION("season without separator before") {
+    // S 必须前面有分隔符
+    REQUIRE(common::extract_season("ShowS01.1080p").empty());
+  }
+
+  SECTION("season at start of string") {
+    // 字符串开头没有分隔符
+    REQUIRE(common::extract_season("S01.1080p").empty());
+  }
+
+  SECTION("invalid season formats") {
+    REQUIRE(common::extract_season("Show.S.1080p").empty());
+    REQUIRE(common::extract_season("Show.SABC.1080p").empty());
+    REQUIRE(common::extract_season("Show.S00.1080p") == "S00");  // S00 是有效的
+  }
+}
+
+// ==================== extract_name_with_season 边界测试 ====================
+
+TEST_CASE("extract_name_with_season edge cases", "[common]") {
+  SECTION("empty string") {
+    REQUIRE(common::extract_name_with_season("").empty());
+  }
+
+  SECTION("only brackets") {
+    REQUIRE(common::extract_name_with_season("[]").empty());
+  }
+
+  SECTION("brackets with empty content") {
+    REQUIRE(common::extract_name_with_season("[].S01.1080p").empty());
+  }
+
+  SECTION("multiple brackets with season") {
+    // 使用最后一对括号的内容
+    auto result = common::extract_name_with_season("[前缀][中文名].S01");
+    REQUIRE(result.find("S01") != std::string::npos);
+  }
+
+  SECTION("Chinese characters in season pattern") {
+    REQUIRE(common::extract_name_with_season("[测试].Show.第1季.1080p") == "测试 S01");
+  }
+}

@@ -18,8 +18,9 @@ struct AppConfig {
   bool print_max = false;
   bool print_all = false;
   bool use_print0 = false;
-  bool sort_time = false;      // 按时间排序
+  bool sort_time = false;       // 按时间排序
   bool sort_time_desc = false;  // 时间降序（默认升序）
+  int limit = 0;                // 限制输出行数，0 表示无限制
 };
 
 using NameEntry = std::tuple<fs::path, std::uintmax_t, fs::file_time_type>;
@@ -37,7 +38,8 @@ void print_results(const NameMap& name_map,
                    bool print_all,
                    bool use_print0,
                    bool sort_time,
-                   bool sort_time_desc);
+                   bool sort_time_desc,
+                   int limit);
 
 // ==================== 函数实现 ====================
 
@@ -53,6 +55,7 @@ void print_usage(const char* program_name) {
                "xargs -0)\n"
             << "  -t              Sort by modification time (oldest first)\n"
             << "  -tr             Sort by modification time (newest first)\n"
+            << "  -l <N>          Limit output to N lines per group\n"
             << "\nDescription:\n"
             << "  Extract Chinese name from brackets [...] in folder names.\n"
             << "  For duplicate names, display the path with the smallest total file "
@@ -81,6 +84,22 @@ AppConfig parse_args(int argc, char* argv[]) {
     } else if (arg == "-tr") {
       config.sort_time = true;
       config.sort_time_desc = true;
+    } else if (arg == "-l") {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: -l requires a number argument\n";
+        std::exit(1);
+      }
+      ++i;
+      try {
+        config.limit = std::stoi(argv[i]);
+        if (config.limit <= 0) {
+          std::cerr << "Error: -l requires a positive number\n";
+          std::exit(1);
+        }
+      } catch (const std::exception&) {
+        std::cerr << "Error: -l requires a valid number\n";
+        std::exit(1);
+      }
     } else if (arg[0] != '-') {
       config.path = arg;
     } else {
@@ -139,7 +158,8 @@ void print_results(const NameMap& name_map,
                    bool print_all,
                    bool use_print0,
                    bool sort_time,
-                   bool sort_time_desc) {
+                   bool sort_time_desc,
+                   int limit) {
   for (const auto& [chinese_name, entries] : name_map) {
     if (entries.size() > 1) {
       if (print_all) {
@@ -152,7 +172,12 @@ void print_results(const NameMap& name_map,
                                                      : std::get<2>(a) < std::get<2>(b);
                              });
         }
+        int count = 0;
         for (const auto& [path, size, mtime] : sorted_entries) {
+          if (limit > 0 && count >= limit) {
+            break;
+          }
+          ++count;
           if (use_print0) {
             std::cout << path.string();
             std::cout.put('\0');
@@ -212,7 +237,7 @@ int main(int argc, char* argv[]) {
   }
 
   print_results(name_map, config.print_max, config.print_all, config.use_print0,
-                config.sort_time, config.sort_time_desc);
+                config.sort_time, config.sort_time_desc, config.limit);
 
   return 0;
 }
