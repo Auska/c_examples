@@ -18,6 +18,8 @@ struct AppConfig {
   bool print_max = false;
   bool print_all = false;
   bool use_print0 = false;
+  bool sort_time = false;      // 按时间排序
+  bool sort_time_desc = false;  // 时间降序（默认升序）
 };
 
 using NameEntry = std::tuple<fs::path, std::uintmax_t, fs::file_time_type>;
@@ -33,7 +35,9 @@ NameMap collect_name_map(const std::string& path_str,
 void print_results(const NameMap& name_map,
                    bool print_max,
                    bool print_all,
-                   bool use_print0);
+                   bool use_print0,
+                   bool sort_time,
+                   bool sort_time_desc);
 
 // ==================== 函数实现 ====================
 
@@ -47,6 +51,8 @@ void print_usage(const char* program_name) {
             << "  -all            Print all duplicate folders (same Chinese name)\n"
             << "  -print0         Use null character as delimiter (for use with "
                "xargs -0)\n"
+            << "  -t              Sort by modification time (oldest first)\n"
+            << "  -tr             Sort by modification time (newest first)\n"
             << "\nDescription:\n"
             << "  Extract Chinese name from brackets [...] in folder names.\n"
             << "  For duplicate names, display the path with the smallest total file "
@@ -69,6 +75,12 @@ AppConfig parse_args(int argc, char* argv[]) {
       config.print_all = true;
     } else if (arg == "-print0") {
       config.use_print0 = true;
+    } else if (arg == "-t") {
+      config.sort_time = true;
+      config.sort_time_desc = false;
+    } else if (arg == "-tr") {
+      config.sort_time = true;
+      config.sort_time_desc = true;
     } else if (arg[0] != '-') {
       config.path = arg;
     } else {
@@ -125,11 +137,22 @@ NameMap collect_name_map(const std::string& path_str,
 void print_results(const NameMap& name_map,
                    bool print_max,
                    bool print_all,
-                   bool use_print0) {
+                   bool use_print0,
+                   bool sort_time,
+                   bool sort_time_desc) {
   for (const auto& [chinese_name, entries] : name_map) {
     if (entries.size() > 1) {
       if (print_all) {
-        for (const auto& [path, size, mtime] : entries) {
+        // 复制以便排序
+        auto sorted_entries = entries;
+        if (sort_time) {
+          std::ranges::sort(sorted_entries,
+                             [sort_time_desc](const auto& a, const auto& b) {
+                               return sort_time_desc ? std::get<2>(a) > std::get<2>(b)
+                                                     : std::get<2>(a) < std::get<2>(b);
+                             });
+        }
+        for (const auto& [path, size, mtime] : sorted_entries) {
           if (use_print0) {
             std::cout << path.string();
             std::cout.put('\0');
@@ -188,7 +211,8 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  print_results(name_map, config.print_max, config.print_all, config.use_print0);
+  print_results(name_map, config.print_max, config.print_all, config.use_print0,
+                config.sort_time, config.sort_time_desc);
 
   return 0;
 }

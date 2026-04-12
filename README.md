@@ -83,11 +83,17 @@ cmake --install build
 # 显示所有重复的文件夹
 ./extract_name -all /path/to/media
 
+# 按修改时间排序（从旧到新）
+./extract_name -all -t /path/to/media
+
+# 按修改时间排序（从新到旧）
+./extract_name -all -tr /path/to/media
+
 # 使用空字符分隔输出
 ./extract_name -print0 /path/to/media | xargs -0 -I{} ls -ld '{}'
 ```
 
-**选项：** `-min` 最小（默认），`-max` 最大，`-all` 全部，`-print0` 空字符分隔
+**选项：** `-min` 最小（默认），`-max` 最大，`-all` 全部，`-print0` 空字符分隔，`-t` 按时间升序，`-tr` 按时间降序
 
 ## 项目结构
 
