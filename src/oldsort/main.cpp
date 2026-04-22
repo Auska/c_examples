@@ -1,45 +1,43 @@
 #include "common/common.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <charconv>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace fs = std::filesystem;
 
 // ==================== 数据结构 ====================
 
-struct DirInfo {
-  fs::path path;
-  fs::file_time_type time;
-  std::uintmax_t size{};
-};
+enum class sort_mode { time, size_asc, size_desc };
 
 struct AppConfig {
   std::string path = ".";
-  int limit = -1;
+  std::optional<int> limit;
   bool use_print0 = false;
-  int sort_mode = 0;  // 0: time, 1: size asc, 2: size desc
+  sort_mode sort_by = sort_mode::time;
 };
 
 // ==================== 函数声明 ====================
 
 void print_usage(const char* program_name);
 [[nodiscard]] bool parse_int(std::string_view s, int& result);
-AppConfig parse_args(int argc, char* argv[]);
-std::vector<DirInfo> collect_directories(
-    const std::string& path_str,
-    std::unordered_map<std::string, std::uintmax_t>& size_cache);
-void sort_directories(std::vector<DirInfo>& dirs, int sort_mode, int limit);
-void print_results(const std::vector<DirInfo>& dirs,
+[[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
+                                                               char* argv[]);
+std::vector<common::dir_entry> collect_directories(const std::string& path_str,
+                                                    common::size_cache& sc);
+void sort_directories(std::vector<common::dir_entry>& dirs,
+                      sort_mode sort_by,
+                      const std::optional<int>& limit);
+void print_results(std::ostream& os,
+                   const std::vector<common::dir_entry>& dirs,
                    bool use_print0,
-                   int limit,
-                   int sort_mode);
+                   const std::optional<int>& limit,
+                   sort_mode sort_by);
 
 // ==================== 函数实现 ====================
 
@@ -69,70 +67,68 @@ void print_usage(const char* program_name) {
   return ec == std::errc() && ptr == s.data() + s.size();
 }
 
-AppConfig parse_args(int argc, char* argv[]) {
+[[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
+                                                               char* argv[]) {
   AppConfig config;
 
   for (int i = 1; i < argc; ++i) {
     std::string_view arg = argv[i];
     if (arg == "-h") {
-      print_usage(argv[0]);
-      std::exit(0);
+      return std::unexpected("HELP");
     } else if (arg.starts_with("-l") && arg.length() > 2) {
       std::string_view num = arg.substr(2);
-      if (!parse_int(num, config.limit) || config.limit <= 0) {
-        std::cerr << "Error: -l requires a positive integer\n";
-        std::exit(1);
+      int val = 0;
+      if (!parse_int(num, val) || val <= 0) {
+        return std::unexpected("Error: -l requires a positive integer\n");
       }
+      config.limit = val;
     } else if (arg == "-l") {
       if (i + 1 < argc) {
         std::string_view next_arg = argv[i + 1];
-        if (!next_arg.empty() && std::isdigit(
-                                     static_cast<unsigned char>(next_arg[0]))) {
-          if (!parse_int(next_arg, config.limit) || config.limit <= 0) {
-            std::cerr << "Error: -l requires a positive integer\n";
-            std::exit(1);
+        int val = 0;
+        if (!next_arg.empty() &&
+            std::isdigit(static_cast<unsigned char>(next_arg[0]))) {
+          if (!parse_int(next_arg, val) || val <= 0) {
+            return std::unexpected("Error: -l requires a positive integer\n");
           }
+          config.limit = val;
           ++i;
         } else {
-          std::cerr << "Error: -l requires a positive integer\n";
-          std::exit(1);
+          return std::unexpected("Error: -l requires a positive integer\n");
         }
       } else {
-        std::cerr << "Error: -l requires an argument\n";
-        std::exit(1);
+        return std::unexpected("Error: -l requires an argument\n");
       }
     } else if (arg == "-print0") {
       config.use_print0 = true;
     } else if (arg == "-min") {
-      config.sort_mode = 1;
+      config.sort_by = sort_mode::size_asc;
     } else if (arg == "-max") {
-      config.sort_mode = 2;
+      config.sort_by = sort_mode::size_desc;
     } else if (arg[0] != '-') {
       config.path = arg;
     } else {
-      std::cerr << "Error: Unknown option '" << arg << "'\n";
-      std::cerr << "Use '" << argv[0] << " -h' for help.\n";
-      std::exit(1);
+      return std::unexpected("Error: Unknown option '" + std::string(arg) +
+                             "'\nUse '" + argv[0] + " -h' for help.\n");
     }
   }
 
   return config;
 }
 
-std::vector<DirInfo> collect_directories(
+std::vector<common::dir_entry> collect_directories(
     const std::string& path_str,
-    std::unordered_map<std::string, std::uintmax_t>& size_cache) {
-  std::vector<DirInfo> all_directories;
+    common::size_cache& sc) {
+  std::vector<common::dir_entry> all_directories;
 
   const auto opts = fs::directory_options::skip_permission_denied;
   for (const auto& entry : fs::recursive_directory_iterator(path_str, opts)) {
     if (entry.is_directory()) {
       try {
-        DirInfo info;
+        common::dir_entry info;
         info.path = entry.path();
-        info.time = fs::last_write_time(entry);
-        info.size =
-            common::calculate_total_size_cached(entry.path(), size_cache);
+        info.mtime = fs::last_write_time(entry);
+        info.size = sc.get(entry.path());
         all_directories.push_back(std::move(info));
       } catch (const fs::filesystem_error& e) {
         std::cerr << "Warning: Cannot access directory '" << entry.path()
@@ -142,10 +138,10 @@ std::vector<DirInfo> collect_directories(
   }
 
   try {
-    DirInfo root_info;
+    common::dir_entry root_info;
     root_info.path = path_str;
-    root_info.time = fs::last_write_time(path_str);
-    root_info.size = common::calculate_total_size_cached(path_str, size_cache);
+    root_info.mtime = fs::last_write_time(path_str);
+    root_info.size = sc.get(path_str);
     all_directories.push_back(std::move(root_info));
   } catch (const fs::filesystem_error& e) {
     std::cerr << "Warning: Cannot access root directory '" << path_str
@@ -155,58 +151,64 @@ std::vector<DirInfo> collect_directories(
   return all_directories;
 }
 
-void sort_directories(std::vector<DirInfo>& dirs, int sort_mode, int limit) {
-  std::ranges::sort(dirs, [](const DirInfo& a, const DirInfo& b) {
-    return a.time < b.time;
+void sort_directories(std::vector<common::dir_entry>& dirs,
+                      sort_mode sort_by,
+                      const std::optional<int>& limit) {
+  std::ranges::sort(dirs, [](const common::dir_entry& a,
+                             const common::dir_entry& b) {
+    return a.mtime < b.mtime;
   });
 
   const size_t max_output =
-      (limit == -1) ? dirs.size() : std::min<size_t>(limit, dirs.size());
+      limit.has_value() ? std::min<size_t>(*limit, dirs.size()) : dirs.size();
 
-  if (sort_mode == 1) {
+  if (sort_by == sort_mode::size_asc) {
     std::ranges::stable_sort(dirs.begin(), dirs.begin() + max_output,
-                             [](const DirInfo& a, const DirInfo& b) {
+                             [](const common::dir_entry& a,
+                                const common::dir_entry& b) {
                                return a.size < b.size;
                              });
-  } else if (sort_mode == 2) {
+  } else if (sort_by == sort_mode::size_desc) {
     std::ranges::stable_sort(dirs.begin(), dirs.begin() + max_output,
-                             [](const DirInfo& a, const DirInfo& b) {
+                             [](const common::dir_entry& a,
+                                const common::dir_entry& b) {
                                return a.size > b.size;
                              });
   }
 }
 
-void print_results(const std::vector<DirInfo>& dirs,
+void print_results(std::ostream& os,
+                   const std::vector<common::dir_entry>& dirs,
                    bool use_print0,
-                   int limit,
-                   int sort_mode) {
+                   const std::optional<int>& limit,
+                   sort_mode sort_by) {
   const size_t count = dirs.size();
   const size_t max_output =
-      (limit == -1) ? count : std::min<size_t>(limit, count);
+      limit.has_value() ? std::min<size_t>(*limit, count) : count;
 
   for (size_t i = 0; i < max_output; ++i) {
     const auto& dir = dirs[i];
     if (use_print0) {
-      std::cout << dir.path.string();
-      std::cout.put('\0');
+      os << dir.path.string();
+      os.put('\0');
     } else {
-      std::cout << common::format_time(dir.time) << "  "
-                << common::format_size(dir.size) << "  '" << dir.path.string()
-                << "'\n";
+      os << common::format_time(dir.mtime) << "  "
+         << common::format_size(dir.size) << "  '" << dir.path.string()
+         << "'\n";
     }
   }
 
   if (!use_print0) {
-    if (limit != -1) {
-      if (sort_mode == 2) {
-        std::cout << "\n(Showing largest " << max_output << " directories)\n";
-      } else if (sort_mode == 1) {
-        std::cout << "\n(Showing smallest " << max_output << " directories)\n";
+    if (limit.has_value()) {
+      if (sort_by == sort_mode::size_desc) {
+        os << "\n(Showing largest " << max_output << " directories)\n";
+      } else if (sort_by == sort_mode::size_asc) {
+        os << "\n(Showing smallest " << max_output << " directories)\n";
       } else {
-        std::cout << "\n(Showing oldest " << max_output << " directories)\n";
+        os << "\n(Showing oldest " << max_output << " directories)\n";
       }
     } else {
-      std::cout << "\nFound " << count << " directories.\n";
+      os << "\nFound " << count << " directories.\n";
     }
   }
 }
@@ -214,24 +216,30 @@ void print_results(const std::vector<DirInfo>& dirs,
 // ==================== main ====================
 
 int main(int argc, char* argv[]) {
-  const AppConfig config = parse_args(argc, argv);
+  const auto config_result = parse_args(argc, argv);
+  if (!config_result) {
+    if (config_result.error() == "HELP") {
+      print_usage(argv[0]);
+      return 0;
+    }
+    std::cerr << config_result.error();
+    return 1;
+  }
+  const auto& config = *config_result;
 
-  if (!fs::exists(config.path)) {
-    std::cerr << "Error: Path does not exist: '" << config.path << "'\n";
+  const auto dir_result = common::validate_directory(config.path);
+  if (!dir_result) {
+    std::cerr << "Error: " << dir_result.error() << "\n";
     return 1;
   }
 
-  if (!fs::is_directory(config.path)) {
-    std::cerr << "Error: Path is not a directory: '" << config.path << "'\n";
-    return 1;
-  }
+  common::size_cache sc;
+  auto directories = collect_directories(config.path, sc);
 
-  std::unordered_map<std::string, std::uintmax_t> size_cache;
-  auto directories = collect_directories(config.path, size_cache);
+  sort_directories(directories, config.sort_by, config.limit);
 
-  sort_directories(directories, config.sort_mode, config.limit);
-
-  print_results(directories, config.use_print0, config.limit, config.sort_mode);
+  print_results(std::cout, directories, config.use_print0, config.limit,
+                config.sort_by);
 
   return 0;
 }

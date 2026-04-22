@@ -35,8 +35,9 @@ namespace common {
   std::uintmax_t total_size = 0;
   std::error_code ec;
 
-  for (const auto& entry :
-       std::filesystem::recursive_directory_iterator(dir_path, ec)) {
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(
+           dir_path, std::filesystem::directory_options::skip_permission_denied,
+           ec)) {
     if (entry.is_regular_file(ec)) {
       const auto file_size = entry.file_size(ec);
       if (!ec) {
@@ -48,28 +49,27 @@ namespace common {
   return total_size;
 }
 
-/// 计算目录大小（带缓存版本，避免重复计算）
-[[nodiscard]] inline std::uintmax_t calculate_total_size_cached(
-    const std::filesystem::path& dir_path,
-    std::unordered_map<std::string, std::uintmax_t>& cache) {
-  // 规范化路径作为缓存键
-  std::string key;
-  std::error_code ec;
-  const auto canonical_path = std::filesystem::canonical(dir_path, ec);
-  if (ec) {
-    key = dir_path.string();
-  } else {
-    key = canonical_path.string();
-  }
+/// 目录大小缓存，封装缓存键生成和查找逻辑
+class size_cache {
+  std::unordered_map<std::string, std::uintmax_t> cache_;
 
-  const auto it = cache.find(key);
-  if (it != cache.end()) {
-    return it->second;
-  }
+ public:
+  /// 获取目录大小（带缓存）
+  [[nodiscard]] std::uintmax_t get(const std::filesystem::path& dir_path) {
+    std::string key;
+    std::error_code ec;
+    const auto canonical_path = std::filesystem::canonical(dir_path, ec);
+    key = ec ? dir_path.string() : canonical_path.string();
 
-  const std::uintmax_t total_size = calculate_total_size(dir_path);
-  cache[key] = total_size;
-  return total_size;
-}
+    const auto it = cache_.find(key);
+    if (it != cache_.end()) {
+      return it->second;
+    }
+
+    const std::uintmax_t total_size = calculate_total_size(dir_path);
+    cache_[key] = total_size;
+    return total_size;
+  }
+};
 
 }  // namespace common

@@ -56,34 +56,56 @@ namespace common {
   return 1.0 - (static_cast<double>(distance) / static_cast<double>(max_len));
 }
 
-/// 用于缓存相似度计算的哈希函数
+/// 用于缓存相似度计算的哈希函数（boost::hash_combine 惯用法）
 struct PairHash {
-  [[nodiscard]] size_t operator()(
-      const std::pair<size_t, size_t>& p) const noexcept {
-    return (p.first * 31) + p.second;
+  template <typename T1, typename T2>
+  [[nodiscard]] size_t operator()(const std::pair<T1, T2>& p) const noexcept {
+    const auto h1 = std::hash<T1>{}(p.first);
+    const auto h2 = std::hash<T2>{}(p.second);
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
   }
 };
 
-/// 带缓存的相似度计算
-[[nodiscard]] inline double levenshtein_similarity_cached(
-    size_t i,
-    size_t j,
-    std::string_view a,
-    std::string_view b,
-    std::unordered_map<std::pair<size_t, size_t>, double, PairHash>& cache) {
-  if (i > j) {
-    std::swap(i, j);
-  }
-  const auto key = std::make_pair(i, j);
+/// 相似度缓存，封装索引对哈希和查找逻辑
+class similarity_cache {
+  std::unordered_map<std::pair<size_t, size_t>, double, PairHash> cache_;
 
-  const auto it = cache.find(key);
-  if (it != cache.end()) {
-    return it->second;
+ public:
+  /// 获取相似度（带缓存），索引 i/j 自动归一化
+  [[nodiscard]] double get(size_t i,
+                           size_t j,
+                           std::string_view a,
+                           std::string_view b) {
+    if (i > j) {
+      std::swap(i, j);
+    }
+    const auto key = std::make_pair(i, j);
+
+    const auto it = cache_.find(key);
+    if (it != cache_.end()) {
+      return it->second;
+    }
+
+    const double sim = levenshtein_similarity(a, b);
+    cache_[key] = sim;
+    return sim;
   }
 
-  const double sim = levenshtein_similarity(a, b);
-  cache[key] = sim;
-  return sim;
-}
+  /// 检查缓存中是否包含指定索引对
+  [[nodiscard]] bool contains(size_t i, size_t j) const {
+    if (i > j) {
+      std::swap(i, j);
+    }
+    return cache_.contains(std::make_pair(i, j));
+  }
+
+  /// 获取缓存中指定索引对的值（须先确认存在）
+  [[nodiscard]] double at(size_t i, size_t j) const {
+    if (i > j) {
+      std::swap(i, j);
+    }
+    return cache_.at(std::make_pair(i, j));
+  }
+};
 
 }  // namespace common

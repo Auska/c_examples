@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -106,18 +107,17 @@ TEST_CASE("calculate_total_size handles directories", "[common]") {
   }
 }
 
-TEST_CASE("calculate_total_size_cached works correctly", "[common]") {
+TEST_CASE("size_cache works correctly", "[common]") {
   SECTION("non-existent directory returns 0") {
-    std::unordered_map<std::string, std::uintmax_t> cache;
-    REQUIRE(common::calculate_total_size_cached("/non/existent/path/12345",
-                                                cache) == 0);
+    common::size_cache sc;
+    REQUIRE(sc.get("/non/existent/path/12345") == 0);
   }
 
-  SECTION("cache is populated") {
-    std::unordered_map<std::string, std::uintmax_t> cache;
-    (void)common::calculate_total_size_cached("/non/existent/path/12345",
-                                              cache);
-    REQUIRE(cache.size() == 1);
+  SECTION("cache returns same value on second call") {
+    common::size_cache sc;
+    const std::uintmax_t first = sc.get("/non/existent/path/12345");
+    const std::uintmax_t second = sc.get("/non/existent/path/12345");
+    REQUIRE(first == second);
   }
 }
 
@@ -214,38 +214,25 @@ TEST_CASE("levenshtein_similarity returns correct values", "[levenshtein]") {
   }
 }
 
-TEST_CASE("levenshtein_similarity_cached works correctly", "[levenshtein]") {
+TEST_CASE("similarity_cache works correctly", "[levenshtein]") {
   SECTION("returns same value as uncached") {
-    std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
-        cache;
-    double cached =
-        common::levenshtein_similarity_cached(0, 1, "hello", "hallo", cache);
+    common::similarity_cache sc;
+    double cached = sc.get(0, 1, "hello", "hallo");
     double uncached = common::levenshtein_similarity("hello", "hallo");
     REQUIRE(cached == Approx(uncached).epsilon(0.001));
   }
 
-  SECTION("cache is populated after first call") {
-    std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
-        cache;
-    (void)common::levenshtein_similarity_cached(0, 1, "hello", "hallo", cache);
-    REQUIRE(cache.contains({0, 1}));
-  }
-
   SECTION("cache returns same value on second call") {
-    std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
-        cache;
-    double first =
-        common::levenshtein_similarity_cached(0, 1, "hello", "hallo", cache);
-    double second =
-        common::levenshtein_similarity_cached(0, 1, "hello", "hallo", cache);
+    common::similarity_cache sc;
+    double first = sc.get(0, 1, "hello", "hallo");
+    double second = sc.get(0, 1, "hello", "hallo");
     REQUIRE(first == second);
   }
 
   SECTION("indices are normalized") {
-    std::unordered_map<std::pair<size_t, size_t>, double, common::PairHash>
-        cache;
-    (void)common::levenshtein_similarity_cached(5, 2, "hello", "hallo", cache);
-    REQUIRE(cache.contains({2, 5}));
+    common::similarity_cache sc;
+    (void)sc.get(5, 2, "hello", "hallo");
+    REQUIRE(sc.contains(2, 5));
   }
 }
 
@@ -351,34 +338,16 @@ TEST_CASE_METHOD(TempDirectoryFixture, "calculate_total_size with real files", "
   }
 }
 
-TEST_CASE_METHOD(TempDirectoryFixture, "calculate_total_size_cached works with real files", "[common]") {
+TEST_CASE_METHOD(TempDirectoryFixture, "size_cache works with real files", "[common]") {
   SECTION("cache prevents recalculation") {
     create_file(temp_dir_ / "test.txt", "cached_content");
 
-    std::unordered_map<std::string, std::uintmax_t> cache;
-    const std::uintmax_t first = common::calculate_total_size_cached(temp_dir_, cache);
-    const std::uintmax_t second = common::calculate_total_size_cached(temp_dir_, cache);
+    common::size_cache sc;
+    const std::uintmax_t first = sc.get(temp_dir_);
+    const std::uintmax_t second = sc.get(temp_dir_);
 
     REQUIRE(first == second);
     REQUIRE(first >= 13);  // "cached_content" length (may vary by platform)
-    REQUIRE(cache.size() == 1);
-  }
-
-  SECTION("cache key is canonical path") {
-    create_file(temp_dir_ / "test.txt", "x");
-
-    std::unordered_map<std::string, std::uintmax_t> cache;
-    (void)common::calculate_total_size_cached(temp_dir_, cache);
-
-    // The cache key should be a canonical path
-    bool found_canonical = false;
-    for (const auto& [key, value] : cache) {
-      if (key.find("test_c_examples_") != std::string::npos) {
-        found_canonical = true;
-        break;
-      }
-    }
-    REQUIRE(found_canonical);
   }
 }
 

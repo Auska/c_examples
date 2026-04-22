@@ -3,9 +3,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -20,26 +20,33 @@ struct AppConfig {
   bool use_print0 = false;
   bool sort_time = false;       // 按时间排序
   bool sort_time_desc = false;  // 时间降序（默认升序）
-  int limit = 0;                // 限制输出行数，0 表示无限制
+  std::optional<int> limit;     // 限制输出行数
 };
 
-using NameEntry = std::tuple<fs::path, std::uintmax_t, fs::file_time_type>;
-using NameMap = std::unordered_map<std::string, std::vector<NameEntry>>;
+/// 带中文名的目录条目（替代 std::tuple 提高可读性）
+struct name_entry {
+  std::string chinese_name;
+  fs::path path;
+  std::uintmax_t size;
+  fs::file_time_type mtime;
+};
+
+using NameMap = std::unordered_map<std::string, std::vector<common::dir_entry>>;
 
 // ==================== 函数声明 ====================
 
 void print_usage(const char* program_name);
-AppConfig parse_args(int argc, char* argv[]);
-NameMap collect_name_map(const std::string& path_str,
-                         std::unordered_map<std::string, std::uintmax_t>&
-                             size_cache);
-void print_results(const NameMap& name_map,
+[[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
+                                                               char* argv[]);
+NameMap collect_name_map(const std::string& path_str, common::size_cache& sc);
+void print_results(std::ostream& os,
+                   const NameMap& name_map,
                    bool print_max,
                    bool print_all,
                    bool use_print0,
                    bool sort_time,
                    bool sort_time_desc,
-                   int limit);
+                   const std::optional<int>& limit);
 
 // ==================== 函数实现 ====================
 
@@ -62,14 +69,14 @@ void print_usage(const char* program_name) {
                "size.\n";
 }
 
-AppConfig parse_args(int argc, char* argv[]) {
+[[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
+                                                               char* argv[]) {
   AppConfig config;
 
   for (int i = 1; i < argc; ++i) {
     std::string_view arg = argv[i];
     if (arg == "-h") {
-      print_usage(argv[0]);
-      std::exit(0);
+      return std::unexpected("HELP");
     } else if (arg == "-min") {
       config.print_max = false;
     } else if (arg == "-max") {
@@ -86,35 +93,30 @@ AppConfig parse_args(int argc, char* argv[]) {
       config.sort_time_desc = true;
     } else if (arg == "-l") {
       if (i + 1 >= argc) {
-        std::cerr << "Error: -l requires a number argument\n";
-        std::exit(1);
+        return std::unexpected("Error: -l requires a number argument\n");
       }
       ++i;
       try {
-        config.limit = std::stoi(argv[i]);
-        if (config.limit <= 0) {
-          std::cerr << "Error: -l requires a positive number\n";
-          std::exit(1);
+        int val = std::stoi(argv[i]);
+        if (val <= 0) {
+          return std::unexpected("Error: -l requires a positive number\n");
         }
+        config.limit = val;
       } catch (const std::exception&) {
-        std::cerr << "Error: -l requires a valid number\n";
-        std::exit(1);
+        return std::unexpected("Error: -l requires a valid number\n");
       }
     } else if (arg[0] != '-') {
       config.path = arg;
     } else {
-      std::cerr << "Error: Unknown option '" << arg << "'\n";
-      print_usage(argv[0]);
-      std::exit(1);
+      return std::unexpected("Error: Unknown option '" + std::string(arg) +
+                             "'\n");
     }
   }
 
   return config;
 }
 
-NameMap collect_name_map(const std::string& path_str,
-                         std::unordered_map<std::string, std::uintmax_t>&
-                             size_cache) {
+NameMap collect_name_map(const std::string& path_str, common::size_cache& sc) {
   NameMap name_map;
 
   std::error_code ec;
@@ -134,10 +136,11 @@ NameMap collect_name_map(const std::string& path_str,
 
       if (!chinese_name.empty()) {
         try {
-          const std::uintmax_t total_size =
-              common::calculate_total_size_cached(dir_path, size_cache);
-          const fs::file_time_type mtime = fs::last_write_time(dir_path);
-          name_map[chinese_name].emplace_back(dir_path, total_size, mtime);
+          common::dir_entry info;
+          info.path = dir_path;
+          info.size = sc.get(dir_path);
+          info.mtime = fs::last_write_time(dir_path);
+          name_map[chinese_name].push_back(std::move(info));
         } catch (const fs::filesystem_error& e) {
           std::cerr << "Warning: Cannot access directory '" << dir_path
                     << "': " << e.what() << "\n";
@@ -153,48 +156,41 @@ NameMap collect_name_map(const std::string& path_str,
   return name_map;
 }
 
-// 用于输出的条目结构（包含中文名）
-struct OutputEntry {
-  std::string chinese_name;
-  fs::path path;
-  std::uintmax_t size;
-  fs::file_time_type mtime;
-};
-
-void print_results(const NameMap& name_map,
+void print_results(std::ostream& os,
+                   const NameMap& name_map,
                    bool print_max,
                    bool print_all,
                    bool use_print0,
                    bool sort_time,
                    bool sort_time_desc,
-                   int limit) {
+                   const std::optional<int>& limit) {
   // 收集所有要输出的条目
-  std::vector<OutputEntry> output_entries;
+  std::vector<name_entry> output_entries;
 
   for (const auto& [chinese_name, entries] : name_map) {
     if (entries.size() > 1) {
       if (print_all) {
-        // -all 模式：添加所有条目
-        for (const auto& [path, size, mtime] : entries) {
-          output_entries.push_back({chinese_name, path, size, mtime});
+        for (const auto& e : entries) {
+          output_entries.push_back(
+              {chinese_name, e.path, e.size, e.mtime});
         }
       } else {
-        // 默认模式：只添加 min/max 条目
         const auto extreme_entry =
             print_max ? std::ranges::max_element(
-                            entries,
-                            [](const auto& a, const auto& b) {
-                              return std::get<1>(a) < std::get<1>(b);
+                            entries, [](const common::dir_entry& a,
+                                        const common::dir_entry& b) {
+                              return a.size < b.size;
                             })
                       : std::ranges::min_element(
-                            entries, [](const auto& a, const auto& b) {
-                              return std::get<1>(a) < std::get<1>(b);
+                            entries, [](const common::dir_entry& a,
+                                        const common::dir_entry& b) {
+                              return a.size < b.size;
                             });
         output_entries.push_back(
             {chinese_name,
-             std::get<0>(*extreme_entry),
-             std::get<1>(*extreme_entry),
-             std::get<2>(*extreme_entry)});
+             extreme_entry->path,
+             extreme_entry->size,
+             extreme_entry->mtime});
       }
     }
   }
@@ -202,25 +198,27 @@ void print_results(const NameMap& name_map,
   // 按时间排序
   if (sort_time) {
     std::ranges::sort(output_entries,
-                       [sort_time_desc](const auto& a, const auto& b) {
-                         return sort_time_desc ? a.mtime > b.mtime : a.mtime < b.mtime;
+                       [sort_time_desc](const name_entry& a,
+                                        const name_entry& b) {
+                         return sort_time_desc ? a.mtime > b.mtime
+                                               : a.mtime < b.mtime;
                        });
   }
 
   // 输出结果
   int count = 0;
   for (const auto& entry : output_entries) {
-    if (limit > 0 && count >= limit) {
+    if (limit.has_value() && count >= *limit) {
       break;
     }
     ++count;
     if (use_print0) {
-      std::cout << entry.path.string();
-      std::cout.put('\0');
+      os << entry.path.string();
+      os.put('\0');
     } else {
-      std::cout << entry.chinese_name << " -> '" << entry.path.string() << "' "
-                << common::format_time(entry.mtime) << " "
-                << common::format_size(entry.size) << "\n";
+      os << entry.chinese_name << " -> '" << entry.path.string() << "' "
+         << common::format_time(entry.mtime) << " "
+         << common::format_size(entry.size) << "\n";
     }
   }
 }
@@ -228,29 +226,35 @@ void print_results(const NameMap& name_map,
 // ==================== main ====================
 
 int main(int argc, char* argv[]) {
-  const AppConfig config = parse_args(argc, argv);
+  const auto config_result = parse_args(argc, argv);
+  if (!config_result) {
+    if (config_result.error() == "HELP") {
+      print_usage(argv[0]);
+      return 0;
+    }
+    std::cerr << config_result.error();
+    return 1;
+  }
+  const auto& config = *config_result;
 
-  if (!fs::exists(config.path)) {
-    std::cerr << "Error: Path does not exist: '" << config.path << "'\n";
+  const auto dir_result = common::validate_directory(config.path);
+  if (!dir_result) {
+    std::cerr << "Error: " << dir_result.error() << "\n";
     return 1;
   }
 
-  if (!fs::is_directory(config.path)) {
-    std::cerr << "Error: Path is not a directory: '" << config.path << "'\n";
-    return 1;
-  }
-
-  std::unordered_map<std::string, std::uintmax_t> size_cache;
+  common::size_cache sc;
   NameMap name_map;
   try {
-    name_map = collect_name_map(config.path, size_cache);
+    name_map = collect_name_map(config.path, sc);
   } catch (const fs::filesystem_error& e) {
     std::cerr << "Error: Failed to read directory: " << e.what() << "\n";
     return 1;
   }
 
-  print_results(name_map, config.print_max, config.print_all, config.use_print0,
-                config.sort_time, config.sort_time_desc, config.limit);
+  print_results(std::cout, name_map, config.print_max, config.print_all,
+                config.use_print0, config.sort_time, config.sort_time_desc,
+                config.limit);
 
   return 0;
 }

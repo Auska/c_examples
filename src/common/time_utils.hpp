@@ -3,8 +3,7 @@
 #include <chrono>
 #include <ctime>
 #include <filesystem>
-#include <iomanip>
-#include <sstream>
+#include <format>
 #include <string>
 
 namespace common {
@@ -12,7 +11,6 @@ namespace common {
 /// 格式化修改时间（线程安全跨平台版本）
 [[nodiscard]] inline std::string format_time(
     std::filesystem::file_time_type ftime) {
-  // C++20: 使用 clock_cast 直接转换为系统时钟时间
   const auto sys_time =
       std::chrono::clock_cast<std::chrono::system_clock>(ftime);
   const std::time_t tt = std::chrono::system_clock::to_time_t(sys_time);
@@ -24,9 +22,13 @@ namespace common {
   localtime_r(&tt, &tm_buf);
 #endif
 
-  std::ostringstream oss;
-  oss << std::put_time(&tm_buf, "%Y-%m-%d+%H:%M:%S");
-  return oss.str();
+  return std::format("{}-{:02d}-{:02d}+{:02d}:{:02d}:{:02d}",
+                     tm_buf.tm_year + 1900,
+                     tm_buf.tm_mon + 1,
+                     tm_buf.tm_mday,
+                     tm_buf.tm_hour,
+                     tm_buf.tm_min,
+                     tm_buf.tm_sec);
 }
 
 }  // namespace common

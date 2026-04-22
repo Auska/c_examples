@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cctype>
+#include <format>
 #include <regex>
 #include <string>
 #include <string_view>
@@ -24,15 +25,16 @@ namespace common {
 
 /// 从文件夹名称中提取季数标识 (如 S01, S02, Season 1 等)
 /// 返回格式化的季数字符串 (如 "S01", "S02")
+/// 注意：正则中仅使用 ASCII 分隔符 [._ -]，避免 \s 误匹配 UTF-8 多字节字节
 [[nodiscard]] inline std::string extract_season(std::string_view folder_name) {
   // 常见的季数模式，按优先级排序
-  // 匹配 S01, S02, s01, s02 等格式
+  // 仅使用 ASCII 分隔符 [._ -] 替代 \s，避免 UTF-8 多字节字符的误匹配
   static const std::array<std::regex, 4> season_patterns = {
-      std::regex{R"([.\s_-]S(\d{1,2})(?:[.\s_-]|$))", std::regex::icase},  // S01, S02
-      std::regex{R"([.\s_-]Season[\s._]*(\d{1,2})(?:[.\s_-]|$))",
+      std::regex{R"([._ -]S(\d{1,2})(?:[._ -]|$))", std::regex::icase},  // S01, S02
+      std::regex{R"([._ -]Season[._ ]*(\d{1,2})(?:[._ -]|$))",
                  std::regex::icase},                                       // Season 1, Season.1
-      std::regex{R"([.\s_-]第(\d{1,2})季(?:[.\s_-]|$))"},                  // 第1季, 第2季
-      std::regex{R"([.\s_-](\d{1,2})st[\s._-]*Season(?:[.\s_-]|$))",
+      std::regex{R"([._ -]第(\d{1,2})季(?:[._ -]|$))"},                  // 第1季, 第2季
+      std::regex{R"([._ -](\d{1,2})st[._ -]*Season(?:[._ -]|$))",
                  std::regex::icase},  // 1st Season, 2nd Season
   };
 
@@ -42,9 +44,7 @@ namespace common {
                           pattern)) {
       int season_num = std::stoi(match[1].str());
       // 格式化为 S01, S02, ..., S99
-      char buf[8];
-      std::snprintf(buf, sizeof(buf), "S%02d", season_num);
-      return std::string(buf);
+      return std::format("S{:02d}", season_num);
     }
   }
 
