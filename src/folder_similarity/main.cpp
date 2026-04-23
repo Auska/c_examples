@@ -186,9 +186,8 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
         continue;  // 长度差太大，不可能相似
       }
 
-      // 传入 min_similarity 以启用 Levenshtein 提前终止
       const double sim =
-          sim_cache.get(i, j, unique_names[i], unique_names[j], threshold);
+          sim_cache.get(i, j, unique_names[i], unique_names[j]);
       if (sim >= threshold) {
         uf.unite(i, j);
       }

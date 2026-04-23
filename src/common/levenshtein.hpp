@@ -182,12 +182,11 @@ class similarity_cache {
 
  public:
   /// 获取相似度（带缓存），索引 i/j 自动归一化
-  /// min_similarity: 低于此阈值的计算可提前终止
+  /// 注意：为避免缓存不精确值，始终计算精确相似度
   [[nodiscard]] double get(size_t i,
                            size_t j,
                            std::string_view a,
-                           std::string_view b,
-                           double min_similarity = 0.0) {
+                           std::string_view b) {
     if (i > j) {
       std::swap(i, j);
     }
@@ -198,7 +197,7 @@ class similarity_cache {
       return it->second;
     }
 
-    const double sim = levenshtein_similarity(a, b, min_similarity);
+    const double sim = levenshtein_similarity(a, b);
     cache_[key] = sim;
     return sim;
   }
