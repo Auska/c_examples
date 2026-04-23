@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# 构建选项
+option(ENABLE_TESTS "Build unit tests" ON)
+option(ENABLE_BENCHMARKS "Build benchmarks" ON)
+
 # 编译选项
 add_compile_options(-Wall -Wextra)
 
@@ -23,20 +27,25 @@ include(GNUInstallDirs)
 install(TARGETS folder_similarity oldsort extract_name
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-# 测试配置
-enable_testing()
+# ==================== 测试配置 ====================
 
-add_executable(test_runner tests/test_common.cpp external/catch_amalgamated.cpp)
-target_include_directories(test_runner PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+if(ENABLE_TESTS)
+  enable_testing()
 
-add_test(NAME CommonTests COMMAND test_runner)
+  add_executable(test_runner tests/test_common.cpp external/catch_amalgamated.cpp)
+  target_include_directories(test_runner PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+
+  add_test(NAME CommonTests COMMAND test_runner)
+endif()
 
 # ==================== 性能测试 (Celero) ====================
 
-set(CELERO_ENABLE_EXPERIMENTS OFF CACHE BOOL "" FORCE)
-set(CELERO_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
-add_subdirectory(external/Celero-2.10.0)
+if(ENABLE_BENCHMARKS)
+  set(CELERO_ENABLE_EXPERIMENTS OFF CACHE BOOL "" FORCE)
+  set(CELERO_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+  add_subdirectory(external/Celero-2.10.0)
 
-add_executable(benchmark_runner benchmarks/benchmark_common.cpp)
-target_include_directories(benchmark_runner PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(benchmark_runner PRIVATE celero)
+  add_executable(benchmark_runner benchmarks/benchmark_common.cpp)
+  target_include_directories(benchmark_runner PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_link_libraries(benchmark_runner PRIVATE celero)
+endif()
