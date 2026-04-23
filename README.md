@@ -18,22 +18,36 @@
 ## 构建和测试
 
 ```bash
-# 构建项目
+# 构建项目（默认包含测试和性能测试）
 cmake -B build
 cmake --build build -j$(nproc)
 
-# 运行测试
+# 只构建工具，跳过测试和性能测试
+cmake -B build -DENABLE_TESTS=OFF -DENABLE_BENCHMARKS=OFF
+cmake --build build -j$(nproc)
+
+# 运行单元测试
 cd build && ctest --output-on-failure
+
+# 运行性能测试
+./build/benchmark_runner
 
 # 安装
 cmake --install build
 ```
 
+### 构建选项
+
+| 选项 | 默认 | 说明 |
+|------|------|------|
+| `ENABLE_TESTS` | ON | 构建单元测试 (Catch2) |
+| `ENABLE_BENCHMARKS` | ON | 构建性能测试 (Celero) |
+
 ## 工具使用
 
 ### folder_similarity
 
-比较文件夹名称的相似度，使用 Levenshtein 距离算法。
+比较文件夹名称的相似度，使用 Levenshtein 距离算法（UTF-8 码点级，中文语义正确）。
 
 ```bash
 # 比较当前目录下的子文件夹（默认阈值 0.9）
@@ -111,10 +125,14 @@ c_examples/
 ├── src/
 │   ├── common/                # 公共模块
 │   │   ├── common.hpp         # 聚合头文件
-│   │   ├── size_utils.hpp     # 大小格式化和计算
+│   │   ├── cli_utils.hpp      # 命令行解析器
+│   │   ├── dir_entry.hpp      # 目录条目结构体
+│   │   ├── fs_utils.hpp       # 文件系统校验
+│   │   ├── levenshtein.hpp    # Levenshtein 算法 (UTF-8 码点级)
+│   │   ├── size_utils.hpp     # 大小格式化和计算 + 缓存
+│   │   ├── string_utils.hpp   # 字符串处理 (手写扫描提取季数)
 │   │   ├── time_utils.hpp     # 时间格式化
-│   │   ├── string_utils.hpp   # 字符串处理
-│   │   └── levenshtein.hpp    # Levenshtein 算法
+│   │   └── union_find.hpp     # 并查集
 │   ├── folder_similarity/     # 文件夹相似度工具
 │   │   └── main.cpp
 │   ├── oldsort/               # 目录排序工具
@@ -122,8 +140,12 @@ c_examples/
 │   └── extract_name/          # 提取名称工具
 │       └── main.cpp
 ├── tests/
-│   └── test_common.cpp        # 单元测试
-├── external/                  # 第三方库 (Catch2)
+│   └── test_common.cpp        # 单元测试 (Catch2)
+├── benchmarks/
+│   └── benchmark_common.cpp   # 性能测试 (Celero)
+├── external/                  # 第三方库
+│   ├── catch_amalgamated.*    # Catch2
+│   └── Celero-2.10.0/         # Celero 基准测试框架
 ├── CMakeLists.txt
 └── README.md
 ```
@@ -136,18 +158,39 @@ c_examples/
 // 大小相关
 common::format_size(bytes);                    // 格式化文件大小
 common::calculate_total_size(path);            // 计算目录总大小
-common::calculate_total_size_cached(path, cache); // 带缓存计算
+common::size_cache sc;
+sc.get(path);                                  // 带缓存计算目录大小
 
 // 时间相关
 common::format_time(ftime);                    // 格式化时间
 
 // 字符串相关
 common::extract_bracket_content(str);          // 提取中括号内容
+common::extract_season(str);                   // 提取季数 (S01/Season 1/第N季)
+common::extract_name_with_season(str);         // 提取中文名+季数
 
 // Levenshtein 相关
-common::levenshtein_distance(s1, s2);          // 计算距离
-common::levenshtein_similarity(a, b);          // 计算相似度
+common::levenshtein_distance(s1, s2);          // UTF-8 码点级距离
+common::levenshtein_similarity(a, b);          // 相似度 (0.0 ~ 1.0)
+common::levenshtein_similarity(a, b, 0.9);    // 带提前终止的相似度计算
+common::similarity_cache cache;
+cache.get(i, j, a, b);                        // 带缓存的相似度
+
+// 并查集
+common::UnionFind uf(n);
+uf.unite(i, j);                                // 合并
+uf.find(i);                                    // 查找根节点
 ```
+
+## 性能优化
+
+| 优化项 | 说明 | 效果 |
+|--------|------|------|
+| Levenshtein UTF-8 码点级 | 先解码为 Unicode 码点再计算距离 | 中文语义正确 |
+| Levenshtein 提前终止 | 距离超过阈值时立即返回 | 不相似配对 ~3.5x 加速 |
+| 长度差预过滤 | O(n^2) 比较中跳过不可能相似的配对 | 大目录场景显著减少计算量 |
+| extract_season 手写扫描 | 替代 std::regex | ~12x 加速 |
+| size_cache 去除 canonical | 直接用 path.string() 作缓存键 | 避免文件系统 I/O |
 
 ## 开发约定
 
