@@ -144,10 +144,51 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
     double threshold,
     common::UnionFind& uf,
     common::similarity_cache& sim_cache) {
+  // 预计算每个名称的 UTF-8 码点长度，用于快速预过滤
+  std::vector<size_t> cp_lengths;
+  cp_lengths.reserve(unique_names.size());
+  for (const auto& name : unique_names) {
+    size_t len = 0;
+    for (size_t pos = 0; pos < name.size();) {
+      const auto b0 = static_cast<uint8_t>(name[pos]);
+      if (b0 < 0x80) {
+        pos += 1;
+      } else if ((b0 & 0xE0) == 0xC0) {
+        pos += 2;
+      } else if ((b0 & 0xF0) == 0xE0) {
+        pos += 3;
+      } else if ((b0 & 0xF8) == 0xF0) {
+        pos += 4;
+      } else {
+        pos += 1;
+      }
+      ++len;
+    }
+    cp_lengths.push_back(len);
+  }
+
+  // 预过滤：计算长度差对应的最低相似度
+  // 相似度 = 1 - distance/max_len，最低 distance = |len_diff|
+  // 所以最低相似度 = 1 - |len_diff|/max_len
+  // 如果最低相似度 < threshold，则这对不可能满足条件
+
   for (size_t i = 0; i < unique_names.size(); ++i) {
     for (size_t j = i + 1; j < unique_names.size(); ++j) {
+      // 长度预过滤
+      const size_t max_cp_len =
+          std::max(cp_lengths[i], cp_lengths[j]);
+      const size_t cp_diff =
+          cp_lengths[i] > cp_lengths[j] ? cp_lengths[i] - cp_lengths[j]
+                                        : cp_lengths[j] - cp_lengths[i];
+      const double worst_sim =
+          1.0 - static_cast<double>(cp_diff) / static_cast<double>(max_cp_len);
+      if (worst_sim < threshold) {
+        continue;  // 长度差太大，不可能相似
+      }
+
+      // 传入 min_similarity 以启用 Levenshtein 提前终止
       const double sim =
-          sim_cache.get(i, j, unique_names[i], unique_names[j]);
+          sim_cache.get(i, j, unique_names[i], unique_names[j], threshold);
       if (sim >= threshold) {
         uf.unite(i, j);
       }
@@ -184,10 +225,11 @@ void print_groups(
       for (size_t j = i + 1; j < group.size(); ++j) {
         const size_t idx1 = name_to_index.at(group[i]);
         const size_t idx2 = name_to_index.at(group[j]);
+        // 使用 find 避免双重查找
+        const double* cached = sim_cache.find(idx1, idx2);
         const double sim =
-            sim_cache.contains(idx1, idx2)
-                ? sim_cache.at(idx1, idx2)
-                : common::levenshtein_similarity(group[i], group[j]);
+            cached ? *cached
+                   : common::levenshtein_similarity(group[i], group[j], 0.0);
         min_sim = std::min(min_sim, sim);
       }
     }
