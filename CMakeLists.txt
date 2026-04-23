@@ -30,3 +30,13 @@ add_executable(test_runner tests/test_common.cpp external/catch_amalgamated.cpp)
 target_include_directories(test_runner PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
 
 add_test(NAME CommonTests COMMAND test_runner)
+
+# ==================== 性能测试 (Celero) ====================
+
+set(CELERO_ENABLE_EXPERIMENTS OFF CACHE BOOL "" FORCE)
+set(CELERO_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(external/Celero-2.10.0)
+
+add_executable(benchmark_runner benchmarks/benchmark_common.cpp)
+target_include_directories(benchmark_runner PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(benchmark_runner PRIVATE celero)
