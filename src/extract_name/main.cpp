@@ -35,7 +35,6 @@ using NameMap = std::unordered_map<std::string, std::vector<common::dir_entry>>;
 
 // ==================== 函数声明 ====================
 
-void print_usage(const char* program_name);
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]);
 NameMap collect_name_map(const std::string& path_str, common::size_cache& sc);
@@ -50,69 +49,75 @@ void print_results(std::ostream& os,
 
 // ==================== 函数实现 ====================
 
-void print_usage(const char* program_name) {
-  std::cout << "Usage: " << program_name << " [OPTIONS] <directory>\n"
-            << "\nOptions:\n"
-            << "  -h              Show this help message\n"
-            << "  -min            Print the path with the minimum total size "
-               "(default)\n"
-            << "  -max            Print the path with the maximum total size\n"
-            << "  -all            Print all duplicate folders (same Chinese name)\n"
-            << "  -print0         Use null character as delimiter (for use with "
-               "xargs -0)\n"
-            << "  -t              Sort output by modification time (oldest first)\n"
-            << "  -tr             Sort output by modification time (newest first)\n"
-            << "  -l <N>          Limit output to N lines per group\n"
-            << "\nDescription:\n"
-            << "  Extract Chinese name from brackets [...] in folder names.\n"
-            << "  For duplicate names, display the path with the smallest total file "
-               "size.\n";
-}
-
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]) {
   AppConfig config;
-
-  for (int i = 1; i < argc; ++i) {
-    std::string_view arg = argv[i];
-    if (arg == "-h") {
+  
+  common::cli::parser parser("Extract Chinese name from brackets [...] in folder names.\n" 
+                             "For duplicate names, display the path with the smallest total file size.");
+  parser.add_option({"--min", 'm', "Print the path with the minimum total size (default)", false});
+  parser.add_option({"--max", 'M', "Print the path with the maximum total size", false});
+  parser.add_option({"--all", 'a', "Print all duplicate folders (same Chinese name)", false});
+  parser.add_option({"--print0", '0', "Use null character as delimiter", false});
+  parser.add_option({"--time", 't', "Sort output by modification time (oldest first)", false});
+  parser.add_option({"--time-reverse", 'T', "Sort output by modification time (newest first)", false});
+  parser.add_option({"--limit", 'l', "Limit output to N lines per group", true});
+  parser.add_positional("directory", "Directory to scan");
+  
+  auto parse_result = parser.parse(argc, argv);
+  if (!parse_result) {
+    if (parse_result.error() == "HELP") {
+      parser.print_usage(argv[0]);
       return std::unexpected("HELP");
-    } else if (arg == "-min") {
-      config.print_max = false;
-    } else if (arg == "-max") {
-      config.print_max = true;
-    } else if (arg == "-all") {
-      config.print_all = true;
-    } else if (arg == "-print0") {
-      config.use_print0 = true;
-    } else if (arg == "-t") {
-      config.sort_time = true;
-      config.sort_time_desc = false;
-    } else if (arg == "-tr") {
-      config.sort_time = true;
-      config.sort_time_desc = true;
-    } else if (arg == "-l") {
-      if (i + 1 >= argc) {
-        return std::unexpected("Error: -l requires a number argument\n");
+    }
+    return std::unexpected(parse_result.error());
+  }
+  
+  // 处理 min/max 选项
+  if (common::cli::parser::has_option(*parse_result, "--max")) {
+    config.print_max = true;
+  } else if (common::cli::parser::has_option(*parse_result, "--min")) {
+    config.print_max = false;
+  }
+  
+  // 处理 all 选项
+  if (common::cli::parser::has_option(*parse_result, "--all")) {
+    config.print_all = true;
+  }
+  
+  // 处理 print0 选项
+  if (common::cli::parser::has_option(*parse_result, "--print0")) {
+    config.use_print0 = true;
+  }
+  
+  // 处理时间排序选项
+  if (common::cli::parser::has_option(*parse_result, "--time-reverse")) {
+    config.sort_time = true;
+    config.sort_time_desc = true;
+  } else if (common::cli::parser::has_option(*parse_result, "--time")) {
+    config.sort_time = true;
+    config.sort_time_desc = false;
+  }
+  
+  // 处理 limit 选项
+  auto limit_str = common::cli::parser::get_option(*parse_result, "--limit");
+  if (!limit_str.empty()) {
+    try {
+      int val = std::stoi(std::string(limit_str));
+      if (val <= 0) {
+        return std::unexpected("Error: -l requires a positive number\n");
       }
-      ++i;
-      try {
-        int val = std::stoi(argv[i]);
-        if (val <= 0) {
-          return std::unexpected("Error: -l requires a positive number\n");
-        }
-        config.limit = val;
-      } catch (const std::exception&) {
-        return std::unexpected("Error: -l requires a valid number\n");
-      }
-    } else if (arg[0] != '-') {
-      config.path = arg;
-    } else {
-      return std::unexpected("Error: Unknown option '" + std::string(arg) +
-                             "'\n");
+      config.limit = val;
+    } catch (const std::exception&) {
+      return std::unexpected("Error: -l requires a valid number\n");
     }
   }
-
+  
+  // 处理位置参数
+  if (!parse_result->positional.empty()) {
+    config.path = parse_result->positional[0];
+  }
+  
   return config;
 }
 
@@ -229,7 +234,6 @@ int main(int argc, char* argv[]) {
   const auto config_result = parse_args(argc, argv);
   if (!config_result) {
     if (config_result.error() == "HELP") {
-      print_usage(argv[0]);
       return 0;
     }
     std::cerr << config_result.error();

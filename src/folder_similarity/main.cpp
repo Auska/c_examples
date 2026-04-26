@@ -1,7 +1,5 @@
 #include "common/common.hpp"
 
-#include <getopt.h>
-
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
@@ -21,7 +19,6 @@ struct AppConfig {
 
 // ==================== 函数声明 ====================
 
-void print_usage(const char* program_name);
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]);
 std::unordered_map<std::string, std::vector<fs::path>> collect_folders(
@@ -42,59 +39,49 @@ void print_groups(
 
 // ==================== 函数实现 ====================
 
-void print_usage(const char* program_name) {
-  std::cout << "Usage: " << program_name
-            << " [OPTIONS] [directory1 [directory2 ...]]\n"
-            << "\nOptions:\n"
-            << "  -s <threshold>  Set similarity threshold (0.0 ~ 1.0, "
-               "default: 0.9)\n"
-            << "  -h              Show this help message\n"
-            << "\nDescription:\n"
-            << "  Compare folder names in the specified directories using "
-               "Levenshtein distance.\n"
-            << "  If no directories are specified, the current directory "
-               "is used.\n"
-            << "  Only pairs with similarity >= threshold are displayed.\n";
-}
-
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]) {
   AppConfig config;
-  int opt = 0;
-
-  while ((opt = getopt(argc, argv, "s:h")) != -1) {
-    if (opt == 's') {
-      try {
-        config.threshold = std::stod(optarg);
-        if (config.threshold < 0.0 || config.threshold > 1.0) {
-          return std::unexpected(
-              "Error: Similarity threshold must be between 0.0 and 1.0\n");
-        }
-      } catch (const std::invalid_argument&) {
-        return std::unexpected(
-            "Error: Invalid threshold value: " + std::string(optarg) + "\n");
-      } catch (const std::out_of_range&) {
-        return std::unexpected(
-            "Error: Threshold value out of range: " + std::string(optarg) +
-            "\n");
-      }
-    } else if (opt == 'h') {
+  
+  common::cli::parser parser("Compare folder names using Levenshtein distance.\n" 
+                             "If no directories are specified, the current directory is used.\n" 
+                             "Only pairs with similarity >= threshold are displayed.");
+  parser.add_option({"--threshold", 's', "Set similarity threshold (0.0 ~ 1.0, default: 0.9)", true});
+  parser.add_positional("directory", "Directory to scan");
+  
+  auto parse_result = parser.parse(argc, argv);
+  if (!parse_result) {
+    if (parse_result.error() == "HELP") {
+      parser.print_usage(argv[0]);
       return std::unexpected("HELP");
-    } else {
-      return std::unexpected(
-          "Error: Unknown option '" + std::string(1, static_cast<char>(optopt)) +
-          "'\nUse '" + argv[0] + " -h' for help.\n");
+    }
+    return std::unexpected(parse_result.error());
+  }
+  
+  // 处理阈值选项
+  auto threshold_str = common::cli::parser::get_option(*parse_result, "--threshold");
+  if (!threshold_str.empty()) {
+    try {
+      config.threshold = std::stod(std::string(threshold_str));
+      if (config.threshold < 0.0 || config.threshold > 1.0) {
+        return std::unexpected("Error: Similarity threshold must be between 0.0 and 1.0\n");
+      }
+    } catch (const std::invalid_argument&) {
+      return std::unexpected("Error: Invalid threshold value: " + std::string(threshold_str) + "\n");
+    } catch (const std::out_of_range&) {
+      return std::unexpected("Error: Threshold value out of range: " + std::string(threshold_str) + "\n");
     }
   }
-
-  for (int i = optind; i < argc; ++i) {
-    config.directories.emplace_back(argv[i]);
+  
+  // 处理位置参数
+  for (const auto& dir : parse_result->positional) {
+    config.directories.emplace_back(dir);
   }
-
+  
   if (config.directories.empty()) {
     config.directories.emplace_back(".");
   }
-
+  
   return config;
 }
 
@@ -263,7 +250,6 @@ int main(int argc, char* argv[]) {
   const auto config_result = parse_args(argc, argv);
   if (!config_result) {
     if (config_result.error() == "HELP") {
-      print_usage(argv[0]);
       return 0;
     }
     std::cerr << config_result.error();

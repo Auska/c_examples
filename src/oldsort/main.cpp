@@ -1,7 +1,6 @@
 #include "common/common.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -24,8 +23,6 @@ struct AppConfig {
 
 // ==================== 函数声明 ====================
 
-void print_usage(const char* program_name);
-[[nodiscard]] bool parse_int(std::string_view s, int& result);
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]);
 std::vector<common::dir_entry> collect_directories(const std::string& path_str,
@@ -41,78 +38,58 @@ void print_results(std::ostream& os,
 
 // ==================== 函数实现 ====================
 
-void print_usage(const char* program_name) {
-  std::cout << "Usage: " << program_name << " [OPTIONS] [directory]\n"
-            << "\nOptions:\n"
-            << "  -l <number>     Limit output to N directories (default: "
-               "no limit)\n"
-            << "  -print0         Use null character as delimiter (for use "
-               "with xargs -0)\n"
-            << "  -min            Sort by folder size (smallest first)\n"
-            << "  -max            Sort by folder size (largest first)\n"
-            << "  -h              Show this help message\n"
-            << "\nDescription:\n"
-            << "  List all directories in the specified path, sorted by "
-               "last modification time\n"
-            << "  from oldest to newest. If no directory is specified, the "
-               "current directory is used.\n";
-}
-
-[[nodiscard]] bool parse_int(std::string_view s, int& result) {
-  if (s.empty() || s[0] == '-') {
-    return false;
-  }
-  const auto [ptr, ec] =
-      std::from_chars(s.data(), s.data() + s.size(), result);
-  return ec == std::errc() && ptr == s.data() + s.size();
-}
-
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]) {
   AppConfig config;
-
-  for (int i = 1; i < argc; ++i) {
-    std::string_view arg = argv[i];
-    if (arg == "-h") {
+  
+  common::cli::parser parser("List all directories in the specified path, sorted by last modification time\n" 
+                             "from oldest to newest. If no directory is specified, the current directory is used.");
+  parser.add_option({"--limit", 'l', "Limit output to N directories", true});
+  parser.add_option({"--print0", '0', "Use null character as delimiter", false});
+  parser.add_option({"--min", 'm', "Sort by folder size (smallest first)", false});
+  parser.add_option({"--max", 'M', "Sort by folder size (largest first)", false});
+  parser.add_positional("directory", "Directory to scan");
+  
+  auto parse_result = parser.parse(argc, argv);
+  if (!parse_result) {
+    if (parse_result.error() == "HELP") {
+      parser.print_usage(argv[0]);
       return std::unexpected("HELP");
-    } else if (arg.starts_with("-l") && arg.length() > 2) {
-      std::string_view num = arg.substr(2);
-      int val = 0;
-      if (!parse_int(num, val) || val <= 0) {
+    }
+    return std::unexpected(parse_result.error());
+  }
+  
+  // 处理 limit 选项
+  auto limit_str = common::cli::parser::get_option(*parse_result, "--limit");
+  if (!limit_str.empty()) {
+    try {
+      int val = std::stoi(std::string(limit_str));
+      if (val <= 0) {
         return std::unexpected("Error: -l requires a positive integer\n");
       }
       config.limit = val;
-    } else if (arg == "-l") {
-      if (i + 1 < argc) {
-        std::string_view next_arg = argv[i + 1];
-        int val = 0;
-        if (!next_arg.empty() &&
-            std::isdigit(static_cast<unsigned char>(next_arg[0]))) {
-          if (!parse_int(next_arg, val) || val <= 0) {
-            return std::unexpected("Error: -l requires a positive integer\n");
-          }
-          config.limit = val;
-          ++i;
-        } else {
-          return std::unexpected("Error: -l requires a positive integer\n");
-        }
-      } else {
-        return std::unexpected("Error: -l requires an argument\n");
-      }
-    } else if (arg == "-print0") {
-      config.use_print0 = true;
-    } else if (arg == "-min") {
-      config.sort_by = sort_mode::size_asc;
-    } else if (arg == "-max") {
-      config.sort_by = sort_mode::size_desc;
-    } else if (arg[0] != '-') {
-      config.path = arg;
-    } else {
-      return std::unexpected("Error: Unknown option '" + std::string(arg) +
-                             "'\nUse '" + argv[0] + " -h' for help.\n");
+    } catch (const std::exception&) {
+      return std::unexpected("Error: -l requires a valid positive integer\n");
     }
   }
-
+  
+  // 处理 print0 选项
+  if (common::cli::parser::has_option(*parse_result, "--print0")) {
+    config.use_print0 = true;
+  }
+  
+  // 处理排序选项
+  if (common::cli::parser::has_option(*parse_result, "--min")) {
+    config.sort_by = sort_mode::size_asc;
+  } else if (common::cli::parser::has_option(*parse_result, "--max")) {
+    config.sort_by = sort_mode::size_desc;
+  }
+  
+  // 处理位置参数
+  if (!parse_result->positional.empty()) {
+    config.path = parse_result->positional[0];
+  }
+  
   return config;
 }
 
@@ -219,7 +196,6 @@ int main(int argc, char* argv[]) {
   const auto config_result = parse_args(argc, argv);
   if (!config_result) {
     if (config_result.error() == "HELP") {
-      print_usage(argv[0]);
       return 0;
     }
     std::cerr << config_result.error();
