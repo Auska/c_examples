@@ -13,9 +13,11 @@
 ## 构建要求
 
 - C++23 支持的编译器（如 GCC 13+ 或 Clang 16+）
-- CMake 3.16+
+- CMake 3.16+ 或 XMake 3.0.7+
 
 ## 构建和测试
+
+### 使用 CMake
 
 ```bash
 # 构建项目（默认包含测试和性能测试）
@@ -34,6 +36,30 @@ cd build && ctest --output-on-failure
 
 # 安装
 cmake --install build
+```
+
+### 使用 XMake
+
+```bash
+# 默认构建（仅工具）
+xmake
+
+# 构建工具 + 测试 + 性能测试
+xmake f --ENABLE_TESTS=y --ENABLE_BENCHMARKS=y
+xmake
+
+# Release 模式优化构建
+xmake f -m release --ENABLE_TESTS=y --ENABLE_BENCHMARKS=y
+xmake
+
+# 运行测试
+xmake run test_runner
+
+# 运行性能测试
+xmake run benchmark_runner
+
+# 安装（复制到 build/bin 目录）
+xmake run install
 ```
 
 ### 构建选项
