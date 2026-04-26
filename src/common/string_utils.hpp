@@ -140,13 +140,13 @@ namespace common {
           const char s2 =
               std::tolower(static_cast<unsigned char>(folder_name[pos + 1]));
           bool ordinal = false;
-          if (s1 == 's' && s2 == 't' && (num == 1 || num % 10 == 1)) {
+          if (s1 == 's' && s2 == 't' && (num == 1 || (num % 10 == 1 && num > 10 && num / 10 % 10 != 1))) {
             ordinal = true;
           } else if (s1 == 'n' && s2 == 'd' &&
-                     (num == 2 || num % 10 == 2)) {
+                     (num == 2 || (num % 10 == 2 && num > 10 && num / 10 % 10 != 1))) {
             ordinal = true;
           } else if (s1 == 'r' && s2 == 'd' &&
-                     (num == 3 || num % 10 == 3)) {
+                     (num == 3 || (num % 10 == 3 && num > 10 && num / 10 % 10 != 1))) {
             ordinal = true;
           } else if (s1 == 't' && s2 == 'h') {
             ordinal = true;

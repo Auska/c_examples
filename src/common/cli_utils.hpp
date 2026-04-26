@@ -75,9 +75,9 @@ class parser {
           break;
         }
 
-        // 处理 -l5 这种合并格式（仅短选项+参数）
+        // 处理 -l5 这种合并格式（仅短选项+参数），排除长选项格式（--xxx）
         if (opt.short_name != '\0' && arg.size() > 2 && arg[0] == '-' &&
-            arg[1] == opt.short_name && opt.has_argument) {
+            arg[1] != '-' && arg[1] == opt.short_name && opt.has_argument) {
           std::string value(arg.substr(2));
           result.options.emplace_back(opt.long_name, std::move(value));
           matched = true;

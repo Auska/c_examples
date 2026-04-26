@@ -589,3 +589,440 @@ TEST_CASE("extract_name_with_season edge cases", "[common]") {
     REQUIRE(common::extract_name_with_season("[测试].Show.第1季.1080p") == "测试 S01");
   }
 }
+
+// ==================== cli::parser 测试 ====================
+
+TEST_CASE("cli::parser parses basic options", "[cli]") {
+  common::cli::parser parser("Test program");
+  parser.add_option({"--threshold", 't', "Set threshold", true});
+  parser.add_option({"--verbose", 'v', "Verbose mode", false});
+  parser.add_positional("input", "Input file");
+
+  SECTION("parses option with argument") {
+    const char* argv[] = {"program", "--threshold", "0.5"};
+    auto result = parser.parse(3, const_cast<char**>(argv));
+    REQUIRE(result.has_value());
+    REQUIRE(common::cli::parser::get_option(*result, "--threshold") == "0.5");
+  }
+
+  SECTION("parses short option with argument") {
+    const char* argv[] = {"program", "-t", "0.8"};
+    auto result = parser.parse(3, const_cast<char**>(argv));
+    REQUIRE(result.has_value());
+    REQUIRE(common::cli::parser::get_option(*result, "--threshold") == "0.8");
+  }
+
+  SECTION("parses short option combined with argument") {
+    const char* argv[] = {"program", "-t0.9"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(result.has_value());
+    REQUIRE(common::cli::parser::get_option(*result, "--threshold") == "0.9");
+  }
+
+  SECTION("parses boolean option") {
+    const char* argv[] = {"program", "--verbose"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(result.has_value());
+    REQUIRE(common::cli::parser::has_option(*result, "--verbose"));
+  }
+
+  SECTION("parses short boolean option") {
+    const char* argv[] = {"program", "-v"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(result.has_value());
+    REQUIRE(common::cli::parser::has_option(*result, "--verbose"));
+  }
+
+  SECTION("parses positional argument") {
+    const char* argv[] = {"program", "input.txt"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(result.has_value());
+    REQUIRE(result->positional.size() == 1);
+    REQUIRE(result->positional[0] == "input.txt");
+  }
+
+  SECTION("parses multiple arguments") {
+    const char* argv[] = {"program", "--threshold", "0.5", "--verbose", "file1", "file2"};
+    auto result = parser.parse(6, const_cast<char**>(argv));
+    REQUIRE(result.has_value());
+    REQUIRE(result->positional.size() == 2);
+    REQUIRE(result->positional[0] == "file1");
+    REQUIRE(result->positional[1] == "file2");
+  }
+}
+
+TEST_CASE("cli::parser handles errors", "[cli]") {
+  common::cli::parser parser("Test program");
+  parser.add_option({"--threshold", 't', "Set threshold", true});
+
+  SECTION("returns error for unknown option") {
+    const char* argv[] = {"program", "--unknown"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(!result.has_value());
+  }
+
+  SECTION("returns error for option without required argument") {
+    const char* argv[] = {"program", "--threshold"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(!result.has_value());
+  }
+
+  SECTION("returns error for short option without argument") {
+    const char* argv[] = {"program", "-t"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(!result.has_value());
+  }
+
+  SECTION("returns HELP for -h") {
+    const char* argv[] = {"program", "-h"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(!result.has_value());
+    REQUIRE(result.error() == "HELP");
+  }
+
+  SECTION("returns HELP for --help") {
+    const char* argv[] = {"program", "--help"};
+    auto result = parser.parse(2, const_cast<char**>(argv));
+    REQUIRE(!result.has_value());
+    REQUIRE(result.error() == "HELP");
+  }
+}
+
+TEST_CASE("cli::parser get_option default value", "[cli]") {
+  common::cli::parser parser("Test program");
+  parser.add_option({"--threshold", 't', "Set threshold", true});
+
+  const char* argv[] = {"program"};
+  auto result = parser.parse(1, const_cast<char**>(argv));
+  REQUIRE(result.has_value());
+  REQUIRE(common::cli::parser::get_option(*result, "--threshold").empty());
+  REQUIRE(common::cli::parser::get_option(*result, "--threshold", "default") == "default");
+}
+
+TEST_CASE("cli::parser handles mixed options", "[cli]") {
+  common::cli::parser parser("Test program");
+  parser.add_option({"--input", 'i', "Input file", true});
+  parser.add_option({"--output", 'o', "Output file", true});
+  parser.add_option({"--verbose", 'v', "Verbose", false});
+  parser.add_option({"--debug", 'd', "Debug mode", false});
+  parser.add_positional("arg1", "First argument");
+  parser.add_positional("arg2", "Second argument");
+
+  SECTION("parses complex command line") {
+    const char* argv[] = {"program", "-i", "input.txt", "--output", "out.txt", "-v", "pos1", "pos2"};
+    auto result = parser.parse(8, const_cast<char**>(argv));
+    REQUIRE(result.has_value());
+    REQUIRE(common::cli::parser::get_option(*result, "--input") == "input.txt");
+    REQUIRE(common::cli::parser::get_option(*result, "--output") == "out.txt");
+    REQUIRE(common::cli::parser::has_option(*result, "--verbose"));
+    REQUIRE(result->positional.size() == 2);
+  }
+}
+
+// ==================== validate_directory 测试 ====================
+
+TEST_CASE("validate_directory validates paths", "[fs]") {
+  SECTION("returns error for non-existent path") {
+    auto result = common::validate_directory("/non/existent/path/12345");
+    REQUIRE(!result.has_value());
+    REQUIRE(result.error().find("does not exist") != std::string::npos);
+  }
+
+  SECTION("returns error for file instead of directory") {
+    fs::path temp_file = fs::temp_directory_path() / "test_file.txt";
+    std::ofstream file(temp_file);
+    file << "test";
+    file.close();
+
+    auto result = common::validate_directory(temp_file.string());
+    REQUIRE(!result.has_value());
+    REQUIRE(result.error().find("not a directory") != std::string::npos);
+
+    std::error_code ec;
+    fs::remove(temp_file, ec);
+  }
+
+  SECTION("returns valid path for existing directory") {
+    fs::path temp_dir = fs::temp_directory_path() / "test_validate_dir";
+    fs::create_directories(temp_dir);
+
+    auto result = common::validate_directory(temp_dir.string());
+    REQUIRE(result.has_value());
+    REQUIRE(result->string().find("test_validate_dir") != std::string::npos);
+
+    std::error_code ec;
+    fs::remove(temp_dir, ec);
+  }
+}
+
+// ==================== UnionFind 测试 ====================
+
+TEST_CASE("UnionFind basic operations", "[unionfind]") {
+  common::UnionFind uf(5);
+
+  SECTION("find returns self for initial state") {
+    REQUIRE(uf.find(0) == 0);
+    REQUIRE(uf.find(1) == 1);
+    REQUIRE(uf.find(2) == 2);
+  }
+
+  SECTION("unite merges sets") {
+    uf.unite(0, 1);
+    REQUIRE(uf.find(0) == uf.find(1));
+  }
+
+  SECTION("unite does nothing for same set") {
+    uf.unite(0, 1);
+    uf.unite(0, 1);
+    REQUIRE(uf.find(0) == uf.find(1));
+  }
+
+  SECTION("transitive unification works") {
+    uf.unite(0, 1);
+    uf.unite(1, 2);
+    uf.unite(2, 3);
+    REQUIRE(uf.find(0) == uf.find(1));
+    REQUIRE(uf.find(1) == uf.find(2));
+    REQUIRE(uf.find(2) == uf.find(3));
+    REQUIRE(uf.find(0) == uf.find(3));
+  }
+
+  SECTION("unrelated elements stay separate") {
+    uf.unite(0, 1);
+    uf.unite(2, 3);
+    REQUIRE(uf.find(0) != uf.find(2));
+    REQUIRE(uf.find(0) != uf.find(3));
+    REQUIRE(uf.find(1) != uf.find(2));
+    REQUIRE(uf.find(1) != uf.find(3));
+  }
+}
+
+TEST_CASE("UnionFind path compression", "[unionfind]") {
+  common::UnionFind uf(10);
+
+  SECTION("path compression works") {
+    uf.unite(0, 1);
+    uf.unite(1, 2);
+    uf.unite(2, 3);
+    uf.unite(3, 4);
+
+    (void)uf.find(0);
+    (void)uf.find(4);
+
+    REQUIRE(uf.find(0) == uf.find(4));
+  }
+}
+
+TEST_CASE("UnionFind rank merging", "[unionfind]") {
+  common::UnionFind uf(100);
+
+  SECTION("many unions work correctly") {
+    for (size_t i = 0; i < 99; ++i) {
+      uf.unite(i, i + 1);
+    }
+
+    for (size_t i = 0; i < 100; ++i) {
+      REQUIRE(uf.find(0) == uf.find(i));
+    }
+  }
+}
+
+// ==================== UTF-8 解码测试 ====================
+
+TEST_CASE("utf8_to_codepoints decodes correctly", "[utf8]") {
+  SECTION("empty string") {
+    auto result = common::utf8_to_codepoints("");
+    REQUIRE(result.empty());
+  }
+
+  SECTION("ASCII string") {
+    auto result = common::utf8_to_codepoints("hello");
+    REQUIRE(result.size() == 5);
+    REQUIRE(result[0] == 'h');
+    REQUIRE(result[4] == 'o');
+  }
+
+  SECTION("Chinese characters") {
+    auto result = common::utf8_to_codepoints("你好");
+    REQUIRE(result.size() == 2);
+    REQUIRE(result[0] == 0x4F60);  // 你
+    REQUIRE(result[1] == 0x597D);   // 好
+  }
+
+  SECTION("mixed ASCII and Chinese") {
+    auto result = common::utf8_to_codepoints("hello你好world");
+    REQUIRE(result.size() == 12);  // 5 + 2 + 5
+  }
+
+  SECTION("emoji characters") {
+    auto result = common::utf8_to_codepoints("👋");
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0] == 0x1F44B);  // 👋
+  }
+}
+
+TEST_CASE("decode_utf8 handles edge cases", "[utf8]") {
+  SECTION("empty string") {
+    auto [cp, next] = common::decode_utf8("", 0);
+    REQUIRE(cp == 0);
+    REQUIRE(next == 1);
+  }
+
+  SECTION("out of bounds position") {
+    auto [cp, next] = common::decode_utf8("hello", 10);
+    REQUIRE(cp == 0);
+    REQUIRE(next == 11);
+  }
+
+  SECTION("ASCII characters") {
+    auto [cp, next] = common::decode_utf8("abc", 0);
+    REQUIRE(cp == 'a');
+    REQUIRE(next == 1);
+  }
+
+  SECTION("2-byte UTF-8 sequence") {
+    auto [cp, next] = common::decode_utf8("你好", 0);
+    REQUIRE(cp == 0x4F60);  // 你
+    REQUIRE(next == 3);     // 3 bytes for 你
+  }
+}
+
+// ==================== 字符串辅助函数测试 ====================
+
+TEST_CASE("is_season_sep identifies separators", "[string]") {
+  REQUIRE(common::is_season_sep('.'));
+  REQUIRE(common::is_season_sep('_'));
+  REQUIRE(common::is_season_sep(' '));
+  REQUIRE(common::is_season_sep('-'));
+  REQUIRE(!common::is_season_sep('a'));
+  REQUIRE(!common::is_season_sep('1'));
+  REQUIRE(!common::is_season_sep('S'));
+}
+
+TEST_CASE("parse_season_number parses correctly", "[string]") {
+  SECTION("single digit") {
+    auto [num, digits] = common::parse_season_number("S01", 1);
+    REQUIRE(num == 1);
+    REQUIRE(digits == 2);
+  }
+
+  SECTION("two digits") {
+    auto [num, digits] = common::parse_season_number("S12", 1);
+    REQUIRE(num == 12);
+    REQUIRE(digits == 2);
+  }
+
+  SECTION("single digit only") {
+    auto [num, digits] = common::parse_season_number("S5", 1);
+    REQUIRE(num == 5);
+    REQUIRE(digits == 1);
+  }
+
+  SECTION("no digits at position") {
+    auto [num, digits] = common::parse_season_number("SAB", 1);
+    REQUIRE(num == 0);
+    REQUIRE(digits == 0);
+  }
+
+  SECTION("out of bounds") {
+    auto [num, digits] = common::parse_season_number("S1", 5);
+    REQUIRE(num == 0);
+    REQUIRE(digits == 0);
+  }
+}
+
+TEST_CASE("is_season_boundary identifies boundaries", "[string]") {
+  REQUIRE(common::is_season_boundary("S01.", 3));
+  REQUIRE(common::is_season_boundary("S01_", 3));
+  REQUIRE(common::is_season_boundary("S01 ", 3));
+  REQUIRE(common::is_season_boundary("S01-", 3));
+  REQUIRE(common::is_season_boundary("S01", 3));  // End of string
+  REQUIRE(!common::is_season_boundary("S01X", 3));
+}
+
+// ==================== similarity_cache 详细测试 ====================
+
+TEST_CASE("similarity_cache find and contains", "[levenshtein]") {
+  common::similarity_cache sc;
+  (void)sc.get(1, 2, "hello", "hallo");
+
+  SECTION("find returns pointer to cached value") {
+    const double* ptr = sc.find(1, 2);
+    REQUIRE(ptr != nullptr);
+    REQUIRE(*ptr == Approx(sc.get(1, 2, "hello", "hallo")).epsilon(0.001));
+  }
+
+  SECTION("find returns nullptr for missing entry") {
+    const double* ptr = sc.find(99, 100);
+    REQUIRE(ptr == nullptr);
+  }
+
+  SECTION("contains returns true for cached entry") {
+    REQUIRE(sc.contains(1, 2));
+    REQUIRE(sc.contains(2, 1));  // Normalized
+  }
+
+  SECTION("contains returns false for missing entry") {
+    REQUIRE(!sc.contains(99, 100));
+  }
+
+  SECTION("at returns cached value") {
+    double val = sc.at(1, 2);
+    REQUIRE(val == Approx(common::levenshtein_similarity("hello", "hallo")).epsilon(0.001));
+  }
+
+  SECTION("indices are normalized") {
+    (void)sc.get(5, 3, "test", "best");
+    REQUIRE(sc.contains(3, 5));
+    REQUIRE(sc.find(5, 3) != nullptr);
+  }
+}
+
+// ==================== extract_season 序数格式测试 ====================
+
+TEST_CASE("extract_season handles ordinal formats", "[common]") {
+  SECTION("1st Season") {
+    REQUIRE(common::extract_season("Show.1st.Season.1080p") == "S01");
+    REQUIRE(common::extract_season("Show.21st.Season.1080p") == "S21");
+  }
+
+  SECTION("2nd Season") {
+    REQUIRE(common::extract_season("Show.2nd.Season.1080p") == "S02");
+    REQUIRE(common::extract_season("Show.22nd.Season.1080p") == "S22");
+  }
+
+  SECTION("3rd Season") {
+    REQUIRE(common::extract_season("Show.3rd.Season.1080p") == "S03");
+    REQUIRE(common::extract_season("Show.23rd.Season.1080p") == "S23");
+  }
+
+  SECTION("4th Season and others") {
+    REQUIRE(common::extract_season("Show.4th.Season.1080p") == "S04");
+    REQUIRE(common::extract_season("Show.11th.Season.1080p") == "S11");
+    REQUIRE(common::extract_season("Show.12th.Season.1080p") == "S12");
+    REQUIRE(common::extract_season("Show.13th.Season.1080p") == "S13");
+  }
+
+  SECTION("invalid ordinals are not matched") {
+    REQUIRE(common::extract_season("Show.11st.Season.1080p").empty());
+    REQUIRE(common::extract_season("Show.12nd.Season.1080p").empty());
+    REQUIRE(common::extract_season("Show.13rd.Season.1080p").empty());
+  }
+}
+
+// ==================== 文件系统错误处理测试 ====================
+
+TEST_CASE("calculate_total_size handles errors gracefully", "[common]") {
+  SECTION("permission denied returns 0") {
+    std::uintmax_t size = common::calculate_total_size(fs::temp_directory_path());
+    REQUIRE(size >= 0);
+  }
+}
+
+TEST_CASE("size_cache handles invalid paths gracefully", "[common]") {
+  common::size_cache sc;
+
+  SECTION("non-existent path returns 0") {
+    REQUIRE(sc.get("/non/existent/path") == 0);
+  }
+}
