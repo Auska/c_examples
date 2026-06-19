@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -163,15 +164,31 @@ void print_results(std::ostream& os,
   const size_t max_output =
       limit.has_value() ? std::min<size_t>(*limit, count) : count;
 
-  for (size_t i = 0; i < max_output; ++i) {
-    const auto& dir = dirs[i];
-    if (use_print0) {
-      os << dir.path.string();
-      os.put('\0');
-    } else {
-      os << common::format_time(dir.mtime) << "  "
+  if (!use_print0) {
+    // 自动计算列宽
+    size_t max_time_width = 0;
+    size_t max_size_width = 0;
+    for (size_t i = 0; i < max_output; ++i) {
+      max_time_width =
+          std::max(max_time_width,
+                   common::format_time(dirs[i].mtime).size());
+      max_size_width =
+          std::max(max_size_width,
+                   common::format_size(dirs[i].size).size());
+    }
+
+    for (size_t i = 0; i < max_output; ++i) {
+      const auto& dir = dirs[i];
+      os << std::left << std::setw(static_cast<int>(max_time_width))
+         << common::format_time(dir.mtime) << "  "
+         << std::right << std::setw(static_cast<int>(max_size_width))
          << common::format_size(dir.size) << "  '" << dir.path.string()
          << "'\n";
+    }
+  } else {
+    for (size_t i = 0; i < max_output; ++i) {
+      os << dirs[i].path.string();
+      os.put('\0');
     }
   }
 
