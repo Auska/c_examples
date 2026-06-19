@@ -179,7 +179,7 @@ void print_results(std::ostream& os,
 
     for (size_t i = 0; i < max_output; ++i) {
       const auto& dir = dirs[i];
-      os << std::left << std::setw(static_cast<int>(max_time_width))
+      os << std::right << std::setw(static_cast<int>(max_time_width))
          << common::format_time(dir.mtime) << "  "
          << std::right << std::setw(static_cast<int>(max_size_width))
          << common::format_size(dir.size) << "  '" << dir.path.string()

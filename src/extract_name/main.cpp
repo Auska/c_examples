@@ -236,11 +236,11 @@ void print_results(std::ostream& os,
 
     for (size_t i = 0; i < max_out; ++i) {
       const auto& entry = output_entries[i];
-      os << std::left << std::setw(static_cast<int>(max_name_width))
-         << entry.chinese_name << " -> '" << entry.path.string() << "' "
-         << std::left << std::setw(static_cast<int>(max_time_width))
+      os << std::right << std::setw(static_cast<int>(max_name_width))
+         << entry.chinese_name << "  '" << entry.path.string() << "' "
+         << std::right << std::setw(static_cast<int>(max_time_width))
          << common::format_time(entry.mtime) << " "
-         << std::right << std::setw(static_cast<int>(max_size_width))
+         << std::left << std::setw(static_cast<int>(max_size_width))
          << common::format_size(entry.size) << "\n";
     }
   } else {

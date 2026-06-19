@@ -253,7 +253,7 @@ void print_groups(
              << ")\n";
         } else {
           os << "    \"" << pi.path_str << "\" "
-             << std::left << std::setw(static_cast<int>(max_time_w))
+             << std::right << std::setw(static_cast<int>(max_time_w))
              << pi.time_str << " "
              << std::right << std::setw(static_cast<int>(max_size_w))
              << pi.size_str << "\n";
