@@ -212,7 +212,7 @@ void print_groups(
     bool sort_time_desc,
     bool sort_size,
     bool sort_size_desc) {
-  // 预格式化路径信息，缓存 name → 路径行 的映射
+  // 路径数据
   struct path_info {
     std::string path_str;
     std::string time_str;
@@ -223,14 +223,23 @@ void print_groups(
   };
   std::unordered_map<std::string, std::vector<path_info>> name_to_info;
 
+  // 扁平条目（排序模式下用）
+  struct flat_entry {
+    std::string name;
+    const path_info* pi;
+  };
+
   struct group_out {
     double min_sim;
-    std::vector<std::string> names;
+    std::vector<std::string> names;          // 层级模式
+    std::vector<flat_entry> sorted;          // 扁平模式（已排序）
   };
   std::vector<group_out> printable;
 
   size_t max_time_w = 0;
   size_t max_size_w = 0;
+  size_t max_name_w = 0;   // 扁平模式下列名最大显示宽度
+  bool use_flat = (sort_time || sort_size);
 
   for (const auto& group : std::views::values(groups)) {
     if (group.size() < 2) continue;
@@ -249,7 +258,8 @@ void print_groups(
       }
     }
 
-    printable.push_back({min_sim, group});
+    group_out go;
+    go.min_sim = min_sim;
 
     // 收集路径信息并计算列宽（每个 name 只处理一次）
     for (const auto& name : group) {
@@ -273,42 +283,82 @@ void print_groups(
         }
         infos.push_back(std::move(pi));
       }
-
-      // 按指定规则排序
-      if (sort_time) {
-        std::ranges::sort(infos, [sort_time_desc](const path_info& a,
-                                                   const path_info& b) {
-          return sort_time_desc ? a.mtime > b.mtime : a.mtime < b.mtime;
-        });
-      } else if (sort_size) {
-        std::ranges::sort(infos, [sort_size_desc](const path_info& a,
-                                                   const path_info& b) {
-          return sort_size_desc ? a.raw_size > b.raw_size
-                                : a.raw_size < b.raw_size;
-        });
-      }
+      max_name_w = std::max(max_name_w, common::display_width(name));
     }
+
+    if (use_flat) {
+      // Group 级别：收集并排序所有 (name, path_info)
+      for (const auto& name : group) {
+        for (const auto& pi : name_to_info[name]) {
+          go.sorted.push_back({name, &pi});
+        }
+      }
+
+      if (sort_time) {
+        std::ranges::sort(go.sorted,
+                          [sort_time_desc](const flat_entry& a,
+                                           const flat_entry& b) {
+                            return sort_time_desc
+                                       ? a.pi->mtime > b.pi->mtime
+                                       : a.pi->mtime < b.pi->mtime;
+                          });
+      } else {
+        std::ranges::sort(go.sorted,
+                          [sort_size_desc](const flat_entry& a,
+                                           const flat_entry& b) {
+                            return sort_size_desc
+                                       ? a.pi->raw_size > b.pi->raw_size
+                                       : a.pi->raw_size < b.pi->raw_size;
+                          });
+      }
+    } else {
+      go.names = group;
+    }
+
+    printable.push_back(std::move(go));
   }
 
-  // 对齐输出：time(→)  size(←)  'path'
+  // 对齐输出
   for (const auto& g : printable) {
     os << "Group (min similarity: " << std::fixed << std::setprecision(2)
        << g.min_sim << "):\n";
-    for (const auto& name : g.names) {
-      os << "  \"" << name << "\":\n";
-      for (const auto& pi : name_to_info[name]) {
-        if (!pi.error_msg.empty()) {
-          os << "    "
-             << std::string(max_time_w, ' ')
-             << "  " << std::string(max_size_w, ' ')
-             << "  '" << pi.path_str << "' (error: " << pi.error_msg << ")\n";
+
+    if (use_flat) {
+      for (const auto& fe : g.sorted) {
+        if (!fe.pi->error_msg.empty()) {
+          os << "  \"" << fe.name << "\" "
+             << std::string(max_name_w - common::display_width(fe.name), ' ')
+             << std::string(max_time_w, ' ') << "  "
+             << std::string(max_size_w, ' ') << "  '"
+             << fe.pi->path_str << "' (error: " << fe.pi->error_msg << ")\n";
         } else {
-          os << "    "
-             << std::string(max_time_w - common::display_width(pi.time_str), ' ')
-             << pi.time_str << "  "
-             << pi.size_str
-             << std::string(max_size_w - common::display_width(pi.size_str), ' ')
-             << "  '" << pi.path_str << "'\n";
+          os << "  \""
+             << fe.name << "\" "
+             << std::string(max_name_w - common::display_width(fe.name), ' ')
+             << std::string(max_time_w - common::display_width(fe.pi->time_str), ' ')
+             << fe.pi->time_str << "  "
+             << fe.pi->size_str
+             << std::string(max_size_w - common::display_width(fe.pi->size_str), ' ')
+             << "  '" << fe.pi->path_str << "'\n";
+        }
+      }
+    } else {
+      for (const auto& name : g.names) {
+        os << "  \"" << name << "\":\n";
+        for (const auto& pi : name_to_info[name]) {
+          if (!pi.error_msg.empty()) {
+            os << "    "
+               << std::string(max_time_w, ' ')
+               << "  " << std::string(max_size_w, ' ')
+               << "  '" << pi.path_str << "' (error: " << pi.error_msg << ")\n";
+          } else {
+            os << "    "
+               << std::string(max_time_w - common::display_width(pi.time_str), ' ')
+               << pi.time_str << "  "
+               << pi.size_str
+               << std::string(max_size_w - common::display_width(pi.size_str), ' ')
+               << "  '" << pi.path_str << "'\n";
+          }
         }
       }
     }
