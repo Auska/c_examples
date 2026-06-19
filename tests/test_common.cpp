@@ -1026,3 +1026,50 @@ TEST_CASE("size_cache handles invalid paths gracefully", "[common]") {
     REQUIRE(sc.get("/non/existent/path") == 0);
   }
 }
+
+// ==================== display_width 测试 ====================
+
+TEST_CASE("display_width calculates terminal display width", "[common]") {
+  SECTION("pure ASCII") {
+    REQUIRE(common::display_width("") == 0);
+    REQUIRE(common::display_width("hello") == 5);
+    REQUIRE(common::display_width("2026-06-19+18:14:39") == 19);
+  }
+
+  SECTION("pure CJK (3-byte UTF-8, 2 columns each)") {
+    REQUIRE(common::display_width("鬼灭之刃") == 8);       // 4 chars × 2
+    REQUIRE(common::display_width("耀眼") == 4);           // 2 chars × 2
+    REQUIRE(common::display_width("香港探秘地图") == 12);  // 6 chars × 2
+  }
+
+  SECTION("mixed CJK + ASCII") {
+    REQUIRE(common::display_width("太行谣 S01") == 10);         // (3×2) + 1 + 3
+    REQUIRE(common::display_width("香港探秘地图 S01") == 16);   // (6×2) + 1 + 3
+    REQUIRE(common::display_width("耀眼 S01") == 8);            // (2×2) + 1 + 3
+    REQUIRE(common::display_width("神墓 S03") == 8);            // (2×2) + 1 + 3
+  }
+
+  SECTION("2-byte UTF-8 (Latin extensions, width 1)") {
+    // £ (U+00A3) = 0xC2 0xA3, width 1
+    REQUIRE(common::display_width("£100") == 4);
+  }
+
+  SECTION("4-byte UTF-8 (emoji, width 2)") {
+    // 😀 (U+1F600) = 0xF0 0x9F 0x98 0x80, width 2
+    REQUIRE(common::display_width("😀") == 2);
+    REQUIRE(common::display_width("🎉") == 2);
+  }
+
+  SECTION("size format strings") {
+    REQUIRE(common::display_width(common::format_size(0)) == 3);          // "0 B"
+    REQUIRE(common::display_width(common::format_size(1024)) == 7);       // "1.00 KB"
+    REQUIRE(common::display_width(common::format_size(1048576)) == 7);    // "1.00 MB"
+    REQUIRE(common::display_width(common::format_size(1073741824)) == 7); // "1.00 GB"
+  }
+
+  SECTION("time format strings") {
+    // "YYYY-MM-DD+HH:MM:SS" = 19 ASCII chars
+    auto ft = fs::last_write_time(fs::current_path());
+    REQUIRE(common::display_width(common::format_time(ft)) == 19);
+  }
+}
