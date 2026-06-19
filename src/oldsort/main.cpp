@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -165,25 +164,27 @@ void print_results(std::ostream& os,
       limit.has_value() ? std::min<size_t>(*limit, count) : count;
 
   if (!use_print0) {
-    // 自动计算列宽
-    size_t max_time_width = 0;
-    size_t max_size_width = 0;
+    // 自动计算列宽（基于终端显示宽度）
+    size_t max_time_w = 0;
+    size_t max_size_w = 0;
     for (size_t i = 0; i < max_output; ++i) {
-      max_time_width =
-          std::max(max_time_width,
-                   common::format_time(dirs[i].mtime).size());
-      max_size_width =
-          std::max(max_size_width,
-                   common::format_size(dirs[i].size).size());
+      max_time_w =
+          std::max(max_time_w,
+                   common::display_width(common::format_time(dirs[i].mtime)));
+      max_size_w =
+          std::max(max_size_w,
+                   common::display_width(common::format_size(dirs[i].size)));
     }
 
     for (size_t i = 0; i < max_output; ++i) {
       const auto& dir = dirs[i];
-      os << std::right << std::setw(static_cast<int>(max_time_width))
-         << common::format_time(dir.mtime) << "  "
-         << std::right << std::setw(static_cast<int>(max_size_width))
-         << common::format_size(dir.size) << "  '" << dir.path.string()
-         << "'\n";
+      const auto time_str = common::format_time(dir.mtime);
+      const auto size_str = common::format_size(dir.size);
+
+      os << std::string(max_time_w - common::display_width(time_str), ' ')
+         << time_str << "  "
+         << std::string(max_size_w - common::display_width(size_str), ' ')
+         << size_str << "  '" << dir.path.string() << "'\n";
     }
   } else {
     for (size_t i = 0; i < max_output; ++i) {

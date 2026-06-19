@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -218,30 +217,37 @@ void print_results(std::ostream& os,
           : output_entries.size();
 
   if (!use_print0) {
-    // 自动计算列宽（仅扫描实际输出的行）
-    size_t max_name_width = 0;
-    size_t max_time_width = 0;
-    size_t max_size_width = 0;
+    // 自动计算列宽（基于终端显示宽度，非字节数）
+    size_t max_name_w = 0;
+    size_t max_time_w = 0;
+    size_t max_size_w = 0;
     for (size_t i = 0; i < max_out; ++i) {
       const auto& e = output_entries[i];
-      max_name_width =
-          std::max(max_name_width, e.chinese_name.size());
-      max_time_width =
-          std::max(max_time_width,
-                   common::format_time(e.mtime).size());
-      max_size_width =
-          std::max(max_size_width,
-                   common::format_size(e.size).size());
+      max_name_w =
+          std::max(max_name_w, common::display_width(e.chinese_name));
+      max_time_w =
+          std::max(max_time_w,
+                   common::display_width(common::format_time(e.mtime)));
+      max_size_w =
+          std::max(max_size_w,
+                   common::display_width(common::format_size(e.size)));
     }
 
     for (size_t i = 0; i < max_out; ++i) {
       const auto& entry = output_entries[i];
-      os << std::right << std::setw(static_cast<int>(max_name_width))
+      const auto time_str = common::format_time(entry.mtime);
+      const auto size_str = common::format_size(entry.size);
+
+      const size_t name_dw = common::display_width(entry.chinese_name);
+      const size_t time_dw = common::display_width(time_str);
+
+      os << std::string(max_name_w - name_dw, ' ')  // 名称 右对齐
          << entry.chinese_name << "  '" << entry.path.string() << "' "
-         << std::right << std::setw(static_cast<int>(max_time_width))
-         << common::format_time(entry.mtime) << " "
-         << std::left << std::setw(static_cast<int>(max_size_width))
-         << common::format_size(entry.size) << "\n";
+         << std::string(max_time_w - time_dw, ' ')  // 时间 右对齐
+         << time_str << " "
+         << size_str                                  // 大小 左对齐
+         << std::string(max_size_w - common::display_width(size_str), ' ')
+         << "\n";
     }
   } else {
     for (size_t i = 0; i < max_out; ++i) {

@@ -191,4 +191,27 @@ namespace common {
   return chinese_name + " " + season;
 }
 
+/// 计算字符串的终端显示宽度
+/// CJK 及全角字符计 2 列，ASCII 计 1 列，组合字符计 0 列
+[[nodiscard]] inline size_t display_width(std::string_view sv) {
+  size_t w = 0;
+  for (size_t i = 0; i < sv.size();) {
+    const auto c = static_cast<unsigned char>(sv[i]);
+    if (c < 0x80) {        // 1-byte ASCII
+      w += 1;
+      i += 1;
+    } else if (c < 0xE0) {  // 2-byte (Latin/Cyrillic ext)
+      w += 1;
+      i += 2;
+    } else if (c < 0xF0) {  // 3-byte (CJK Unified Ideographs)
+      w += 2;
+      i += 3;
+    } else {                // 4-byte (emoji, supplementary)
+      w += 2;
+      i += 4;
+    }
+  }
+  return w;
+}
+
 }  // namespace common

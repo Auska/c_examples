@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <iomanip>
 #include <iostream>
 #include <ranges>
 #include <string>
@@ -231,8 +230,10 @@ void print_groups(
           const std::uintmax_t size = sc.get(path);
           pi.time_str = common::format_time(mtime);
           pi.size_str = common::format_size(size);
-          max_time_w = std::max(max_time_w, pi.time_str.size());
-          max_size_w = std::max(max_size_w, pi.size_str.size());
+          max_time_w = std::max(max_time_w,
+                                  common::display_width(pi.time_str));
+          max_size_w = std::max(max_size_w,
+                                  common::display_width(pi.size_str));
         } catch (const fs::filesystem_error& e) {
           pi.error_msg = e.what();
         }
@@ -253,9 +254,9 @@ void print_groups(
              << ")\n";
         } else {
           os << "    \"" << pi.path_str << "\" "
-             << std::right << std::setw(static_cast<int>(max_time_w))
+             << std::string(max_time_w - common::display_width(pi.time_str), ' ')
              << pi.time_str << " "
-             << std::right << std::setw(static_cast<int>(max_size_w))
+             << std::string(max_size_w - common::display_width(pi.size_str), ' ')
              << pi.size_str << "\n";
         }
       }
