@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cctype>
 #include <format>
 #include <string>

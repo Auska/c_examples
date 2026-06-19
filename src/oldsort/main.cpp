@@ -5,7 +5,6 @@
 #include <iostream>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -136,16 +135,17 @@ void sort_directories(std::vector<common::dir_entry>& dirs,
     return a.mtime < b.mtime;
   });
 
-  const size_t max_output =
-      limit.has_value() ? std::min<size_t>(*limit, dirs.size()) : dirs.size();
-
   if (sort_by == sort_mode::size_asc) {
+    const size_t max_output =
+        limit.has_value() ? std::min<size_t>(*limit, dirs.size()) : dirs.size();
     std::ranges::stable_sort(dirs.begin(), dirs.begin() + max_output,
                              [](const common::dir_entry& a,
                                 const common::dir_entry& b) {
                                return a.size < b.size;
                              });
   } else if (sort_by == sort_mode::size_desc) {
+    const size_t max_output =
+        limit.has_value() ? std::min<size_t>(*limit, dirs.size()) : dirs.size();
     std::ranges::stable_sort(dirs.begin(), dirs.begin() + max_output,
                              [](const common::dir_entry& a,
                                 const common::dir_entry& b) {

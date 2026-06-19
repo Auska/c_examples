@@ -5,7 +5,6 @@
 #include <iostream>
 #include <ranges>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -224,15 +223,10 @@ void print_groups(
   std::unordered_map<std::string, std::vector<path_info>> name_to_info;
 
   // 扁平条目（排序模式下用）
-  struct flat_entry {
-    std::string name;
-    const path_info* pi;
-  };
-
   struct group_out {
     double min_sim;
-    std::vector<std::string> names;          // 层级模式
-    std::vector<flat_entry> sorted;          // 扁平模式（已排序）
+    std::vector<std::string> names;              // 层级模式
+    std::vector<const path_info*> sorted;        // 扁平模式（已排序）
   };
   std::vector<group_out> printable;
 
@@ -285,28 +279,28 @@ void print_groups(
     }
 
     if (use_flat) {
-      // Group 级别：收集并排序所有 (name, path_info)
+      // Group 级别：收集并排序所有 path_info
       for (const auto& name : group) {
         for (const auto& pi : name_to_info[name]) {
-          go.sorted.push_back({name, &pi});
+          go.sorted.push_back(&pi);
         }
       }
 
       if (sort_time) {
         std::ranges::sort(go.sorted,
-                          [sort_time_desc](const flat_entry& a,
-                                           const flat_entry& b) {
+                          [sort_time_desc](const path_info* a,
+                                           const path_info* b) {
                             return sort_time_desc
-                                       ? a.pi->mtime > b.pi->mtime
-                                       : a.pi->mtime < b.pi->mtime;
+                                       ? a->mtime > b->mtime
+                                       : a->mtime < b->mtime;
                           });
       } else {
         std::ranges::sort(go.sorted,
-                          [sort_size_desc](const flat_entry& a,
-                                           const flat_entry& b) {
+                          [sort_size_desc](const path_info* a,
+                                           const path_info* b) {
                             return sort_size_desc
-                                       ? a.pi->raw_size > b.pi->raw_size
-                                       : a.pi->raw_size < b.pi->raw_size;
+                                       ? a->raw_size > b->raw_size
+                                       : a->raw_size < b->raw_size;
                           });
       }
     } else {
@@ -322,19 +316,19 @@ void print_groups(
        << g.min_sim << "):\n";
 
     if (use_flat) {
-      for (const auto& fe : g.sorted) {
-        if (!fe.pi->error_msg.empty()) {
+      for (const auto* pi : g.sorted) {
+        if (!pi->error_msg.empty()) {
           os << "    "
              << std::string(max_time_w, ' ') << "  "
              << std::string(max_size_w, ' ') << "  '"
-             << fe.pi->path_str << "' (error: " << fe.pi->error_msg << ")\n";
+             << pi->path_str << "' (error: " << pi->error_msg << ")\n";
         } else {
           os << "    "
-             << std::string(max_time_w - common::display_width(fe.pi->time_str), ' ')
-             << fe.pi->time_str << "  "
-             << fe.pi->size_str
-             << std::string(max_size_w - common::display_width(fe.pi->size_str), ' ')
-             << "  '" << fe.pi->path_str << "'\n";
+             << std::string(max_time_w - common::display_width(pi->time_str), ' ')
+             << pi->time_str << "  "
+             << pi->size_str
+             << std::string(max_size_w - common::display_width(pi->size_str), ' ')
+             << "  '" << pi->path_str << "'\n";
         }
       }
     } else {
