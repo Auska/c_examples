@@ -18,9 +18,15 @@ add_executable(oldsort src/oldsort/main.cpp)
 add_executable(extract_name src/extract_name/main.cpp)
 
 # 设置 include 目录
-target_include_directories(folder_similarity PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_include_directories(oldsort PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_include_directories(extract_name PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(folder_similarity PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external/rapidfuzz-cpp-3.3.3)
+target_include_directories(oldsort PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external/rapidfuzz-cpp-3.3.3)
+target_include_directories(extract_name PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external/rapidfuzz-cpp-3.3.3)
 
 # 安装配置
 include(GNUInstallDirs)
@@ -33,7 +39,10 @@ if(ENABLE_TESTS)
   enable_testing()
 
   add_executable(test_runner tests/test_common.cpp external/catch_amalgamated.cpp)
-  target_include_directories(test_runner PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+  target_include_directories(test_runner PRIVATE
+      ${CMAKE_SOURCE_DIR}/src
+      ${CMAKE_SOURCE_DIR}
+      ${CMAKE_SOURCE_DIR}/external/rapidfuzz-cpp-3.3.3)
 
   add_test(NAME CommonTests COMMAND test_runner)
 endif()
@@ -46,6 +55,8 @@ if(ENABLE_BENCHMARKS)
   add_subdirectory(external/Celero-2.10.0)
 
   add_executable(benchmark_runner benchmarks/benchmark_common.cpp)
-  target_include_directories(benchmark_runner PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_include_directories(benchmark_runner PRIVATE
+      ${CMAKE_SOURCE_DIR}/src
+      ${CMAKE_SOURCE_DIR}/external/rapidfuzz-cpp-3.3.3)
   target_link_libraries(benchmark_runner PRIVATE celero)
 endif()

@@ -157,11 +157,12 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
     double threshold,
     common::UnionFind& uf,
     common::similarity_cache& sim_cache) {
-  // 预计算每个名称的 UTF-8 码点长度，用于快速预过滤
-  std::vector<size_t> cp_lengths;
-  cp_lengths.reserve(unique_names.size());
+  // 预计算每个名称的字节长度，用于快速预过滤
+  // （RapidFuzz 在字节级别计算距离，故使用 byte_len 做预过滤）
+  std::vector<size_t> byte_lens;
+  byte_lens.reserve(unique_names.size());
   for (const auto& name : unique_names) {
-    cp_lengths.push_back(common::utf8_codepoint_length(name));
+    byte_lens.push_back(name.size());
   }
 
   // 预过滤：计算长度差对应的最低相似度
@@ -172,13 +173,13 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
   for (size_t i = 0; i < unique_names.size(); ++i) {
     for (size_t j = i + 1; j < unique_names.size(); ++j) {
       // 长度预过滤
-      const size_t max_cp_len =
-          std::max(cp_lengths[i], cp_lengths[j]);
-      const size_t cp_diff =
-          cp_lengths[i] > cp_lengths[j] ? cp_lengths[i] - cp_lengths[j]
-                                        : cp_lengths[j] - cp_lengths[i];
+      const size_t max_byte_len =
+          std::max(byte_lens[i], byte_lens[j]);
+      const size_t byte_diff =
+          byte_lens[i] > byte_lens[j] ? byte_lens[i] - byte_lens[j]
+                                      : byte_lens[j] - byte_lens[i];
       const double worst_sim =
-          1.0 - static_cast<double>(cp_diff) / static_cast<double>(max_cp_len);
+          1.0 - static_cast<double>(byte_diff) / static_cast<double>(max_byte_len);
       if (worst_sim < threshold) {
         continue;  // 长度差太大，不可能相似
       }

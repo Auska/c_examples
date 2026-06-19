@@ -165,8 +165,8 @@ TEST_CASE("levenshtein_distance calculates correctly", "[levenshtein]") {
 
   SECTION("unicode strings") {
     REQUIRE(common::levenshtein_distance("你好", "你好") == 0);
-    // UTF-8 码点级计算：一个汉字差异 = 距离 1
-    REQUIRE(common::levenshtein_distance("你好", "你们") == 1);
+    // 使用 RapidFuzz byte 级别计算：一个汉字 = 3 字节差异
+    REQUIRE(common::levenshtein_distance("你好", "你们") == 3);
   }
 
   SECTION("long strings") {

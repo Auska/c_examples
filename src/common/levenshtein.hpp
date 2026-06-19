@@ -1,12 +1,13 @@
 #pragma once
 
-#include <algorithm>
 #include <functional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include <rapidfuzz/distance/Levenshtein.hpp>
 
 namespace common {
 
@@ -73,115 +74,26 @@ namespace common {
   return result;
 }
 
-/// 计算 UTF-8 字符串中的码点数量（不分配内存）
-[[nodiscard]] inline size_t utf8_codepoint_length(
-    std::string_view sv) noexcept {
-  size_t len = 0;
-  size_t pos = 0;
-  while (pos < sv.size()) {
-    const auto [cp, next] = decode_utf8(sv, pos);
-    pos = next;
-    ++len;
-  }
-  return len;
+// ==================== Levenshtein 相似度 (RapidFuzz) ====================
+
+/// 计算 Levenshtein 距离（byte 级别），支持 max_distance 提前终止
+[[nodiscard]] inline size_t levenshtein_distance(std::string_view a,
+                                                 std::string_view b,
+                                                 size_t max_distance = SIZE_MAX) {
+  return rapidfuzz::levenshtein_distance(a, b, {1, 1, 1}, max_distance);
 }
 
-// ==================== Levenshtein 距离 ====================
-
-/// 计算两个码点向量之间的 Levenshtein 距离（内部实现）
-/// 支持提前终止：当距离超过 max_distance 时立即返回
-[[nodiscard]] inline size_t levenshtein_distance(
-    const std::vector<char32_t>& cp1,
-    const std::vector<char32_t>& cp2,
-    size_t max_distance = SIZE_MAX) {
-  const bool swap_needed = cp1.size() > cp2.size();
-  const auto& shorter = swap_needed ? cp2 : cp1;
-  const auto& longer = swap_needed ? cp1 : cp2;
-
-  const size_t n = shorter.size();
-  const size_t m = longer.size();
-
-  // 长度差即为最小可能距离
-  const size_t len_diff = m - n;
-  if (len_diff > max_distance) {
-    return len_diff;  // 必然超过阈值
-  }
-
-  std::vector<size_t> prev_row(n + 1);
-  std::vector<size_t> curr_row(n + 1);
-
-  for (size_t i = 0; i <= n; ++i) {
-    prev_row[i] = i;
-  }
-
-  for (size_t j = 1; j <= m; ++j) {
-    curr_row[0] = j;
-    size_t row_min = j;  // 当前行最小值，用于提前终止
-
-    for (size_t i = 1; i <= n; ++i) {
-      if (shorter[i - 1] == longer[j - 1]) {
-        curr_row[i] = prev_row[i - 1];
-      } else {
-        curr_row[i] =
-            1 + std::min({prev_row[i], curr_row[i - 1], prev_row[i - 1]});
-      }
-      if (curr_row[i] < row_min) {
-        row_min = curr_row[i];
-      }
-    }
-
-    // 提前终止：如果当前行最小值已超过 max_distance，最终距离只会更大
-    if (row_min > max_distance) {
-      return row_min;
-    }
-
-    std::swap(prev_row, curr_row);
-  }
-
-  return prev_row[n];
-}
-
-/// 计算 Levenshtein 距离（码点级，UTF-8 语义正确）
-/// 支持提前终止：当距离超过 max_distance 时立即返回
-[[nodiscard]] inline size_t levenshtein_distance(
-    std::string_view s1,
-    std::string_view s2,
-    size_t max_distance = SIZE_MAX) {
-  return levenshtein_distance(utf8_to_codepoints(s1), utf8_to_codepoints(s2),
-                              max_distance);
-}
-
-/// 计算 Levenshtein 相似度 (0.0 ~ 1.0)，支持提前终止
+/// 计算 Levenshtein 相似度 (0.0 ~ 1.0)，支持 score_cutoff 提前终止
+/// 底层使用 RapidFuzz 的 byte 级别算法，对 UTF-8 字节序列直接计算
 [[nodiscard]] inline double levenshtein_similarity(std::string_view a,
                                                    std::string_view b,
                                                    double min_similarity = 0.0) {
-  if (a.empty() && b.empty()) {
-    return 1.0;
-  }
-  if (a.empty() || b.empty()) {
-    return 0.0;
-  }
-
-  // 解码为码点（一次解码，复用结果）
-  const auto cp1 = utf8_to_codepoints(a);
-  const auto cp2 = utf8_to_codepoints(b);
-  const size_t max_len = std::max(cp1.size(), cp2.size());
-
-  // 长度差预过滤：如果长度差已经导致相似度低于阈值，直接返回
-  const size_t len_diff =
-      cp1.size() > cp2.size() ? cp1.size() - cp2.size() : cp2.size() - cp1.size();
-  const double worst_case_sim =
-      1.0 - static_cast<double>(len_diff) / static_cast<double>(max_len);
-  if (worst_case_sim < min_similarity) {
-    return worst_case_sim;
-  }
-
-  // 计算允许的最大距离
-  const size_t max_distance = static_cast<size_t>(
-      (1.0 - min_similarity) * static_cast<double>(max_len));
-
-  const size_t distance = levenshtein_distance(cp1, cp2, max_distance);
-  return 1.0 - (static_cast<double>(distance) / static_cast<double>(max_len));
+  // RapidFuzz 的 normalized_similarity 返回值范围 [0.0, 1.0]
+  // score_cutoff < 1e-6 时关闭提前终止，与 our min_similarity=0.0 语义一致
+  const double result =
+      rapidfuzz::levenshtein_normalized_similarity(a, b, {1, 1, 1},
+                                                    min_similarity);
+  return result;
 }
 
 /// 用于缓存相似度计算的哈希函数（boost::hash_combine 惯用法）
@@ -200,7 +112,6 @@ class similarity_cache {
 
  public:
   /// 获取相似度（带缓存），索引 i/j 自动归一化
-  /// 注意：为避免缓存不精确值，始终计算精确相似度
   [[nodiscard]] double get(size_t i,
                            size_t j,
                            std::string_view a,
