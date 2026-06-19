@@ -15,6 +15,10 @@ namespace fs = std::filesystem;
 struct AppConfig {
   double threshold = 0.9;
   std::vector<std::string> directories;
+  bool sort_time = false;
+  bool sort_time_desc = false;   // 时间降序（默认升序）
+  bool sort_size = false;
+  bool sort_size_desc = false;   // 体积降序（默认升序）
 };
 
 // ==================== 函数声明 ====================
@@ -34,7 +38,11 @@ void print_groups(
     const std::unordered_map<std::string, size_t>& name_to_index,
     const std::unordered_map<std::string, std::vector<fs::path>>& name_to_paths,
     common::similarity_cache& sim_cache,
-    common::size_cache& sc);
+    common::size_cache& sc,
+    bool sort_time,
+    bool sort_time_desc,
+    bool sort_size,
+    bool sort_size_desc);
 
 // ==================== 函数实现 ====================
 
@@ -46,6 +54,10 @@ void print_groups(
                              "If no directories are specified, the current directory is used.\n" 
                              "Only pairs with similarity >= threshold are displayed.");
   parser.add_option({"--threshold", 's', "Set similarity threshold (0.0 ~ 1.0, default: 0.9)", true});
+  parser.add_option({"--time", 't', "Sort by modification time (oldest first)", false});
+  parser.add_option({"--time-reverse", 'T', "Sort by modification time (newest first)", false});
+  parser.add_option({"--min", 'm', "Sort by folder size (smallest first)", false});
+  parser.add_option({"--max", 'M', "Sort by folder size (largest first)", false});
   parser.add_positional("directory", "Directory to scan");
   
   auto parse_result = parser.parse(argc, argv);
@@ -72,6 +84,22 @@ void print_groups(
     }
   }
   
+  // 处理排序选项
+  if (common::cli::parser::has_option(*parse_result, "--time-reverse")) {
+    config.sort_time = true;
+    config.sort_time_desc = true;
+  } else if (common::cli::parser::has_option(*parse_result, "--time")) {
+    config.sort_time = true;
+    config.sort_time_desc = false;
+  }
+  if (common::cli::parser::has_option(*parse_result, "--max")) {
+    config.sort_size = true;
+    config.sort_size_desc = true;
+  } else if (common::cli::parser::has_option(*parse_result, "--min")) {
+    config.sort_size = true;
+    config.sort_size_desc = false;
+  }
+
   // 处理位置参数
   for (const auto& dir : parse_result->positional) {
     config.directories.emplace_back(dir);
@@ -179,13 +207,19 @@ void print_groups(
     const std::unordered_map<std::string, size_t>& name_to_index,
     const std::unordered_map<std::string, std::vector<fs::path>>& name_to_paths,
     common::similarity_cache& sim_cache,
-    common::size_cache& sc) {
+    common::size_cache& sc,
+    bool sort_time,
+    bool sort_time_desc,
+    bool sort_size,
+    bool sort_size_desc) {
   // 预格式化路径信息，缓存 name → 路径行 的映射
   struct path_info {
     std::string path_str;
     std::string time_str;
     std::string size_str;
-    std::string error_msg;  // 非空表示错误
+    std::string error_msg;
+    fs::file_time_type mtime;
+    std::uintmax_t raw_size = 0;
   };
   std::unordered_map<std::string, std::vector<path_info>> name_to_info;
 
@@ -226,10 +260,10 @@ void print_groups(
         path_info pi;
         pi.path_str = path.string();
         try {
-          const auto mtime = fs::last_write_time(path);
-          const std::uintmax_t size = sc.get(path);
-          pi.time_str = common::format_time(mtime);
-          pi.size_str = common::format_size(size);
+          pi.mtime = fs::last_write_time(path);
+          pi.raw_size = sc.get(path);
+          pi.time_str = common::format_time(pi.mtime);
+          pi.size_str = common::format_size(pi.raw_size);
           max_time_w = std::max(max_time_w,
                                   common::display_width(pi.time_str));
           max_size_w = std::max(max_size_w,
@@ -239,10 +273,24 @@ void print_groups(
         }
         infos.push_back(std::move(pi));
       }
+
+      // 按指定规则排序
+      if (sort_time) {
+        std::ranges::sort(infos, [sort_time_desc](const path_info& a,
+                                                   const path_info& b) {
+          return sort_time_desc ? a.mtime > b.mtime : a.mtime < b.mtime;
+        });
+      } else if (sort_size) {
+        std::ranges::sort(infos, [sort_size_desc](const path_info& a,
+                                                   const path_info& b) {
+          return sort_size_desc ? a.raw_size > b.raw_size
+                                : a.raw_size < b.raw_size;
+        });
+      }
     }
   }
 
-  // 对齐输出
+  // 对齐输出：time(→)  size(←)  'path'
   for (const auto& g : printable) {
     os << "Group (min similarity: " << std::fixed << std::setprecision(2)
        << g.min_sim << "):\n";
@@ -250,14 +298,17 @@ void print_groups(
       os << "  \"" << name << "\":\n";
       for (const auto& pi : name_to_info[name]) {
         if (!pi.error_msg.empty()) {
-          os << "    \"" << pi.path_str << "\" (error: " << pi.error_msg
-             << ")\n";
+          os << "    "
+             << std::string(max_time_w, ' ')
+             << "  " << std::string(max_size_w, ' ')
+             << "  '" << pi.path_str << "' (error: " << pi.error_msg << ")\n";
         } else {
-          os << "    \"" << pi.path_str << "\" "
+          os << "    "
              << std::string(max_time_w - common::display_width(pi.time_str), ' ')
-             << pi.time_str << " "
+             << pi.time_str << "  "
+             << pi.size_str
              << std::string(max_size_w - common::display_width(pi.size_str), ' ')
-             << pi.size_str << "\n";
+             << "  '" << pi.path_str << "'\n";
         }
       }
     }
@@ -316,7 +367,8 @@ int main(int argc, char* argv[]) {
   common::size_cache sc;
   if (found) {
     print_groups(std::cout, groups, name_to_index, name_to_paths, sim_cache,
-                 sc);
+                 sc, config.sort_time, config.sort_time_desc,
+                 config.sort_size, config.sort_size_desc);
   } else {
     std::cout << "No folder name groups with similarity >= " << config.threshold
               << "\n";
