@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <ranges>
 #include <string>
@@ -180,17 +181,33 @@ void print_groups(
     const std::unordered_map<std::string, std::vector<fs::path>>& name_to_paths,
     common::similarity_cache& sim_cache,
     common::size_cache& sc) {
-  for (const auto& group : std::views::values(groups)) {
-    if (group.size() < 2) {
-      continue;
-    }
+  // 预格式化路径信息，缓存 name → 路径行 的映射
+  struct path_info {
+    std::string path_str;
+    std::string time_str;
+    std::string size_str;
+    std::string error_msg;  // 非空表示错误
+  };
+  std::unordered_map<std::string, std::vector<path_info>> name_to_info;
 
+  struct group_out {
+    double min_sim;
+    std::vector<std::string> names;
+  };
+  std::vector<group_out> printable;
+
+  size_t max_time_w = 0;
+  size_t max_size_w = 0;
+
+  for (const auto& group : std::views::values(groups)) {
+    if (group.size() < 2) continue;
+
+    // 计算组内最低相似度
     double min_sim = 1.0;
     for (size_t i = 0; i < group.size(); ++i) {
       for (size_t j = i + 1; j < group.size(); ++j) {
         const size_t idx1 = name_to_index.at(group[i]);
         const size_t idx2 = name_to_index.at(group[j]);
-        // 使用 find 避免双重查找
         const double* cached = sim_cache.find(idx1, idx2);
         const double sim =
             cached ? *cached
@@ -198,20 +215,48 @@ void print_groups(
         min_sim = std::min(min_sim, sim);
       }
     }
-    os << "Group (min similarity: " << min_sim << "):\n";
 
+    printable.push_back({min_sim, group});
+
+    // 收集路径信息并计算列宽（每个 name 只处理一次）
     for (const auto& name : group) {
-      os << "  \"" << name << "\":\n";
+      if (name_to_info.contains(name)) continue;
+
+      auto& infos = name_to_info[name];
       for (const auto& path : name_to_paths.at(name)) {
+        path_info pi;
+        pi.path_str = path.string();
         try {
           const auto mtime = fs::last_write_time(path);
           const std::uintmax_t size = sc.get(path);
-          os << "    \"" << path.string() << "\" "
-             << common::format_time(mtime) << " " << common::format_size(size)
-             << "\n";
+          pi.time_str = common::format_time(mtime);
+          pi.size_str = common::format_size(size);
+          max_time_w = std::max(max_time_w, pi.time_str.size());
+          max_size_w = std::max(max_size_w, pi.size_str.size());
         } catch (const fs::filesystem_error& e) {
-          os << "    \"" << path.string() << "\" (error: " << e.what()
+          pi.error_msg = e.what();
+        }
+        infos.push_back(std::move(pi));
+      }
+    }
+  }
+
+  // 对齐输出
+  for (const auto& g : printable) {
+    os << "Group (min similarity: " << std::fixed << std::setprecision(2)
+       << g.min_sim << "):\n";
+    for (const auto& name : g.names) {
+      os << "  \"" << name << "\":\n";
+      for (const auto& pi : name_to_info[name]) {
+        if (!pi.error_msg.empty()) {
+          os << "    \"" << pi.path_str << "\" (error: " << pi.error_msg
              << ")\n";
+        } else {
+          os << "    \"" << pi.path_str << "\" "
+             << std::left << std::setw(static_cast<int>(max_time_w))
+             << pi.time_str << " "
+             << std::right << std::setw(static_cast<int>(max_size_w))
+             << pi.size_str << "\n";
         }
       }
     }
