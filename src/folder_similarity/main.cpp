@@ -34,7 +34,6 @@ void print_groups(
     const std::unordered_map<std::string, size_t>& name_to_index,
     const std::unordered_map<std::string, std::vector<fs::path>>& name_to_paths,
     common::similarity_cache& sim_cache,
-    double threshold,
     common::size_cache& sc);
 
 // ==================== 函数实现 ====================
@@ -135,23 +134,7 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
   std::vector<size_t> cp_lengths;
   cp_lengths.reserve(unique_names.size());
   for (const auto& name : unique_names) {
-    size_t len = 0;
-    for (size_t pos = 0; pos < name.size();) {
-      const auto b0 = static_cast<uint8_t>(name[pos]);
-      if (b0 < 0x80) {
-        pos += 1;
-      } else if ((b0 & 0xE0) == 0xC0) {
-        pos += 2;
-      } else if ((b0 & 0xF0) == 0xE0) {
-        pos += 3;
-      } else if ((b0 & 0xF8) == 0xF0) {
-        pos += 4;
-      } else {
-        pos += 1;
-      }
-      ++len;
-    }
-    cp_lengths.push_back(len);
+    cp_lengths.push_back(common::utf8_codepoint_length(name));
   }
 
   // 预过滤：计算长度差对应的最低相似度
@@ -196,16 +179,12 @@ void print_groups(
     const std::unordered_map<std::string, size_t>& name_to_index,
     const std::unordered_map<std::string, std::vector<fs::path>>& name_to_paths,
     common::similarity_cache& sim_cache,
-    double threshold,
     common::size_cache& sc) {
-  bool found = false;
-
   for (const auto& group : std::views::values(groups)) {
     if (group.size() < 2) {
       continue;
     }
 
-    found = true;
     double min_sim = 1.0;
     for (size_t i = 0; i < group.size(); ++i) {
       for (size_t j = i + 1; j < group.size(); ++j) {
@@ -237,10 +216,6 @@ void print_groups(
       }
     }
     os << "\n";
-  }
-
-  if (!found) {
-    os << "No folder name groups with similarity >= " << threshold << "\n";
   }
 }
 
@@ -295,7 +270,7 @@ int main(int argc, char* argv[]) {
   common::size_cache sc;
   if (found) {
     print_groups(std::cout, groups, name_to_index, name_to_paths, sim_cache,
-                 config.threshold, sc);
+                 sc);
   } else {
     std::cout << "No folder name groups with similarity >= " << config.threshold
               << "\n";

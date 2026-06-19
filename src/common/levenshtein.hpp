@@ -74,18 +74,27 @@ namespace common {
   return result;
 }
 
+/// 计算 UTF-8 字符串中的码点数量（不分配内存）
+[[nodiscard]] inline size_t utf8_codepoint_length(
+    std::string_view sv) noexcept {
+  size_t len = 0;
+  size_t pos = 0;
+  while (pos < sv.size()) {
+    const auto [cp, next] = decode_utf8(sv, pos);
+    pos = next;
+    ++len;
+  }
+  return len;
+}
+
 // ==================== Levenshtein 距离 ====================
 
-/// 计算 Levenshtein 距离（码点级，UTF-8 语义正确）
+/// 计算两个码点向量之间的 Levenshtein 距离（内部实现）
 /// 支持提前终止：当距离超过 max_distance 时立即返回
 [[nodiscard]] inline size_t levenshtein_distance(
-    std::string_view s1,
-    std::string_view s2,
+    const std::vector<char32_t>& cp1,
+    const std::vector<char32_t>& cp2,
     size_t max_distance = SIZE_MAX) {
-  // 解码为码点
-  const auto cp1 = utf8_to_codepoints(s1);
-  const auto cp2 = utf8_to_codepoints(s2);
-
   const bool swap_needed = cp1.size() > cp2.size();
   const auto& shorter = swap_needed ? cp2 : cp1;
   const auto& longer = swap_needed ? cp1 : cp2;
@@ -133,6 +142,16 @@ namespace common {
   return prev_row[n];
 }
 
+/// 计算 Levenshtein 距离（码点级，UTF-8 语义正确）
+/// 支持提前终止：当距离超过 max_distance 时立即返回
+[[nodiscard]] inline size_t levenshtein_distance(
+    std::string_view s1,
+    std::string_view s2,
+    size_t max_distance = SIZE_MAX) {
+  return levenshtein_distance(utf8_to_codepoints(s1), utf8_to_codepoints(s2),
+                              max_distance);
+}
+
 /// 计算 Levenshtein 相似度 (0.0 ~ 1.0)，支持提前终止
 [[nodiscard]] inline double levenshtein_similarity(std::string_view a,
                                                    std::string_view b,
@@ -144,7 +163,7 @@ namespace common {
     return 0.0;
   }
 
-  // 预计算码点长度（避免完整解码）
+  // 解码为码点（一次解码，复用结果）
   const auto cp1 = utf8_to_codepoints(a);
   const auto cp2 = utf8_to_codepoints(b);
   const size_t max_len = std::max(cp1.size(), cp2.size());
@@ -162,7 +181,7 @@ namespace common {
   const size_t max_distance = static_cast<size_t>(
       (1.0 - min_similarity) * static_cast<double>(max_len));
 
-  const size_t distance = levenshtein_distance(a, b, max_distance);
+  const size_t distance = levenshtein_distance(cp1, cp2, max_distance);
   return 1.0 - (static_cast<double>(distance) / static_cast<double>(max_len));
 }
 

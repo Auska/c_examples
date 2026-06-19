@@ -29,6 +29,21 @@ namespace common {
   return c == '.' || c == '_' || c == ' ' || c == '-';
 }
 
+/// 在指定位置检查是否以 "season"（不区分大小写）开头
+[[nodiscard]] inline bool starts_with_season(std::string_view sv,
+                                             size_t pos) noexcept {
+  constexpr std::string_view k_season = "season";
+  if (pos + k_season.size() > sv.size()) {
+    return false;
+  }
+  for (size_t k = 0; k < k_season.size(); ++k) {
+    if (std::tolower(static_cast<unsigned char>(sv[pos + k])) != k_season[k]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// 从字符串视图指定位置解析 1-2 位数字，返回 {数字值, 数字字符数}
 /// 如果不是有效数字则返回 {0, 0}
 [[nodiscard]] inline std::pair<int, int> parse_season_number(
@@ -77,29 +92,15 @@ namespace common {
     }
 
     // 模式2: Season 1 / Season.1 / season 1 (不区分大小写)
-    if ((c == 'S' || c == 's') && i + 6 < len) {
-      const std::string_view rest = folder_name.substr(i);
-      // 检查 "Season" 前缀（不区分大小写）
-      constexpr std::string_view season_lower = "season";
-      bool match = true;
-      for (size_t k = 0; k < season_lower.size(); ++k) {
-        if (std::tolower(static_cast<unsigned char>(rest[k])) !=
-            season_lower[k]) {
-          match = false;
-          break;
-        }
+    if ((c == 'S' || c == 's') && starts_with_season(folder_name, i)) {
+      size_t pos = i + 6;  // 跳过 "Season"
+      // 允许 Season 和数字之间有分隔符 [._ ]
+      while (pos < len && is_season_sep(folder_name[pos])) {
+        ++pos;
       }
-      if (match) {
-        size_t pos = i + season_lower.size();
-        // 允许 Season 和数字之间有分隔符 [._ ]
-        while (pos < len && (folder_name[pos] == '.' || folder_name[pos] == '_' ||
-                             folder_name[pos] == ' ')) {
-          ++pos;
-        }
-        const auto [num, digits] = parse_season_number(folder_name, pos);
-        if (digits > 0 && is_season_boundary(folder_name, pos + digits)) {
-          return std::format("S{:02d}", num);
-        }
+      const auto [num, digits] = parse_season_number(folder_name, pos);
+      if (digits > 0 && is_season_boundary(folder_name, pos + digits)) {
+        return std::format("S{:02d}", num);
       }
     }
 
@@ -158,21 +159,10 @@ namespace common {
               ++pos;
             }
             // 检查 "Season" (不区分大小写)
-            constexpr std::string_view season_lower = "season";
-            if (pos + season_lower.size() <= len) {
-              bool match = true;
-              for (size_t k = 0; k < season_lower.size(); ++k) {
-                if (std::tolower(static_cast<unsigned char>(
-                        folder_name[pos + k])) != season_lower[k]) {
-                  match = false;
-                  break;
-                }
-              }
-              if (match) {
-                size_t after_season = pos + season_lower.size();
-                if (is_season_boundary(folder_name, after_season)) {
-                  return std::format("S{:02d}", num);
-                }
+            if (starts_with_season(folder_name, pos)) {
+              const size_t after_season = pos + 6;
+              if (is_season_boundary(folder_name, after_season)) {
+                return std::format("S{:02d}", num);
               }
             }
           }
