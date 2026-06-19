@@ -242,12 +242,12 @@ void print_results(std::ostream& os,
       const size_t time_dw = common::display_width(time_str);
 
       os << std::string(max_name_w - name_dw, ' ')  // 名称 右对齐
-         << entry.chinese_name << "  '" << entry.path.string() << "' "
+         << entry.chinese_name << "  "
          << std::string(max_time_w - time_dw, ' ')  // 时间 右对齐
-         << time_str << " "
+         << time_str << "  "
          << size_str                                  // 大小 左对齐
          << std::string(max_size_w - common::display_width(size_str), ' ')
-         << "\n";
+         << "  '" << entry.path.string() << "'\n";    // 路径 末尾
     }
   } else {
     for (size_t i = 0; i < max_out; ++i) {
