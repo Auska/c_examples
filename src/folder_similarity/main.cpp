@@ -238,7 +238,6 @@ void print_groups(
 
   size_t max_time_w = 0;
   size_t max_size_w = 0;
-  size_t max_name_w = 0;   // 扁平模式下列名最大显示宽度
   bool use_flat = (sort_time || sort_size);
 
   for (const auto& group : std::views::values(groups)) {
@@ -283,7 +282,6 @@ void print_groups(
         }
         infos.push_back(std::move(pi));
       }
-      max_name_w = std::max(max_name_w, common::display_width(name));
     }
 
     if (use_flat) {
@@ -326,15 +324,12 @@ void print_groups(
     if (use_flat) {
       for (const auto& fe : g.sorted) {
         if (!fe.pi->error_msg.empty()) {
-          os << "  \"" << fe.name << "\" "
-             << std::string(max_name_w - common::display_width(fe.name), ' ')
+          os << "    "
              << std::string(max_time_w, ' ') << "  "
              << std::string(max_size_w, ' ') << "  '"
              << fe.pi->path_str << "' (error: " << fe.pi->error_msg << ")\n";
         } else {
-          os << "  \""
-             << fe.name << "\" "
-             << std::string(max_name_w - common::display_width(fe.name), ' ')
+          os << "    "
              << std::string(max_time_w - common::display_width(fe.pi->time_str), ' ')
              << fe.pi->time_str << "  "
              << fe.pi->size_str
