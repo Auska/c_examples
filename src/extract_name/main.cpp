@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -211,19 +212,41 @@ void print_results(std::ostream& os,
   }
 
   // 输出结果
-  int count = 0;
-  for (const auto& entry : output_entries) {
-    if (limit.has_value() && count >= *limit) {
-      break;
+  const size_t max_out =
+      limit.has_value()
+          ? std::min<size_t>(*limit, output_entries.size())
+          : output_entries.size();
+
+  if (!use_print0) {
+    // 自动计算列宽（仅扫描实际输出的行）
+    size_t max_name_width = 0;
+    size_t max_time_width = 0;
+    size_t max_size_width = 0;
+    for (size_t i = 0; i < max_out; ++i) {
+      const auto& e = output_entries[i];
+      max_name_width =
+          std::max(max_name_width, e.chinese_name.size());
+      max_time_width =
+          std::max(max_time_width,
+                   common::format_time(e.mtime).size());
+      max_size_width =
+          std::max(max_size_width,
+                   common::format_size(e.size).size());
     }
-    ++count;
-    if (use_print0) {
-      os << entry.path.string();
-      os.put('\0');
-    } else {
-      os << entry.chinese_name << " -> '" << entry.path.string() << "' "
+
+    for (size_t i = 0; i < max_out; ++i) {
+      const auto& entry = output_entries[i];
+      os << std::left << std::setw(static_cast<int>(max_name_width))
+         << entry.chinese_name << " -> '" << entry.path.string() << "' "
+         << std::left << std::setw(static_cast<int>(max_time_width))
          << common::format_time(entry.mtime) << " "
+         << std::right << std::setw(static_cast<int>(max_size_width))
          << common::format_size(entry.size) << "\n";
+    }
+  } else {
+    for (size_t i = 0; i < max_out; ++i) {
+      os << output_entries[i].path.string();
+      os.put('\0');
     }
   }
 }
