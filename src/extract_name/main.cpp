@@ -285,9 +285,22 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  print_results(std::cout, name_map, config.print_max, config.print_all,
-                config.use_print0, config.sort_time, config.sort_time_desc,
-                config.limit);
+  // 检查是否有重复名称
+  bool found = false;
+  for (const auto& [name, entries] : name_map) {
+    if (entries.size() > 1) {
+      found = true;
+      break;
+    }
+  }
+
+  if (found) {
+    print_results(std::cout, name_map, config.print_max, config.print_all,
+                  config.use_print0, config.sort_time, config.sort_time_desc,
+                  config.limit);
+  } else {
+    std::cout << "No duplicate Chinese names found in: " << config.path << "\n";
+  }
 
   return 0;
 }
