@@ -3,9 +3,6 @@ build/
 cmake-build-debug/
 cmake-build-release/
 
-# XMake build directories
-.xmake/
-
 # Build executables (root directory only)
 /folder_similarity
 /oldsort
