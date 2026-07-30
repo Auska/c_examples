@@ -68,6 +68,97 @@ namespace common {
   return pos >= sv.size() || is_season_sep(sv[pos]);
 }
 
+// ==================== 各季数模式的匹配函数（供 extract_season 内部使用） ====================
+
+/// 模式1: S01 / s01
+[[nodiscard]] inline std::string try_match_Sxx(std::string_view sv,
+                                                size_t i) noexcept {
+  const auto [num, digits] = parse_season_number(sv, i + 1);
+  if (digits > 0 && is_season_boundary(sv, i + 1 + digits)) {
+    return std::format("S{:02d}", num);
+  }
+  return {};
+}
+
+/// 模式2: Season 1 / Season.1 / season 1
+[[nodiscard]] inline std::string try_match_Season(std::string_view sv,
+                                                   size_t i) noexcept {
+  size_t pos = i + 6;  // 跳过 "Season"
+  while (pos < sv.size() && is_season_sep(sv[pos])) {
+    ++pos;
+  }
+  const auto [num, digits] = parse_season_number(sv, pos);
+  if (digits > 0 && is_season_boundary(sv, pos + digits)) {
+    return std::format("S{:02d}", num);
+  }
+  return {};
+}
+
+/// 模式3: 第N季
+[[nodiscard]] inline std::string try_match_chinese_season(
+    std::string_view sv, size_t i) noexcept {
+  // UTF-8: 第 = E7 AC AC (3 bytes), 季 = E5 AD A3 (3 bytes)
+  const size_t len = sv.size();
+  size_t pos = i + 3;  // 跳过 "第"
+  const auto [num, digits] = parse_season_number(sv, pos);
+  if (digits > 0) {
+    const size_t after_num = pos + digits;
+    if (after_num + 2 < len &&
+        static_cast<uint8_t>(sv[after_num]) == 0xE5 &&
+        static_cast<uint8_t>(sv[after_num + 1]) == 0xAD &&
+        static_cast<uint8_t>(sv[after_num + 2]) == 0xA3) {
+      if (after_num + 3 >= len ||
+          is_season_sep(sv[after_num + 3])) {
+        return std::format("S{:02d}", num);
+      }
+    }
+  }
+  return {};
+}
+
+/// 检查序数后缀 (st/nd/rd/th)
+[[nodiscard]] inline bool is_ordinal_suffix(std::string_view sv,
+                                             size_t pos,
+                                             int num) noexcept {
+  if (pos + 1 >= sv.size()) return false;
+  const char s1 = std::tolower(static_cast<unsigned char>(sv[pos]));
+  const char s2 = std::tolower(static_cast<unsigned char>(sv[pos + 1]));
+  if (s1 == 's' && s2 == 't') {
+    return num == 1 || (num > 10 && num % 10 == 1 && num / 10 % 10 != 1);
+  }
+  if (s1 == 'n' && s2 == 'd') {
+    return num == 2 || (num > 10 && num % 10 == 2 && num / 10 % 10 != 1);
+  }
+  if (s1 == 'r' && s2 == 'd') {
+    return num == 3 || (num > 10 && num % 10 == 3 && num / 10 % 10 != 1);
+  }
+  if (s1 == 't' && s2 == 'h') {
+    return true;
+  }
+  return false;
+}
+
+/// 模式4: 1st Season / 2nd Season / 3rd Season / 4th Season
+[[nodiscard]] inline std::string try_match_ordinal_season(
+    std::string_view sv, size_t i) noexcept {
+  const auto [num, digits] = parse_season_number(sv, i);
+  if (digits == 0) return {};
+
+  size_t pos = i + digits;
+  if (!is_ordinal_suffix(sv, pos, num)) return {};
+  pos += 2;
+
+  while (pos < sv.size() && is_season_sep(sv[pos])) {
+    ++pos;
+  }
+  if (!starts_with_season(sv, pos)) return {};
+  const size_t after_season = pos + 6;
+  if (is_season_boundary(sv, after_season)) {
+    return std::format("S{:02d}", num);
+  }
+  return {};
+}
+
 /// 从文件夹名称中提取季数标识 (如 S01, S02, Season 1 等)
 /// 返回格式化的季数字符串 (如 "S01", "S02")
 /// 使用手写字符串扫描替代 std::regex，性能提升约 10-50x
@@ -82,91 +173,30 @@ namespace common {
 
     const char c = folder_name[i];
 
-    // 模式1: S01 / s01 (不区分大小写)
+    // 模式1: S01 / s01
     if ((c == 'S' || c == 's') && i + 1 < len) {
-      const auto [num, digits] = parse_season_number(folder_name, i + 1);
-      if (digits > 0 && is_season_boundary(folder_name, i + 1 + digits)) {
-        return std::format("S{:02d}", num);
-      }
+      auto result = try_match_Sxx(folder_name, i);
+      if (!result.empty()) return result;
     }
 
-    // 模式2: Season 1 / Season.1 / season 1 (不区分大小写)
+    // 模式2: Season 1 / Season.1 / season 1
     if ((c == 'S' || c == 's') && starts_with_season(folder_name, i)) {
-      size_t pos = i + 6;  // 跳过 "Season"
-      // 允许 Season 和数字之间有分隔符 [._ ]
-      while (pos < len && is_season_sep(folder_name[pos])) {
-        ++pos;
-      }
-      const auto [num, digits] = parse_season_number(folder_name, pos);
-      if (digits > 0 && is_season_boundary(folder_name, pos + digits)) {
-        return std::format("S{:02d}", num);
-      }
+      auto result = try_match_Season(folder_name, i);
+      if (!result.empty()) return result;
     }
 
     // 模式3: 第N季 (中文)
-    // UTF-8: 第 = E7 AC AC (3 bytes), 季 = E5 AD A3 (3 bytes)
     if (static_cast<uint8_t>(c) == 0xE7 && i + 2 < len &&
         static_cast<uint8_t>(folder_name[i + 1]) == 0xAC &&
         static_cast<uint8_t>(folder_name[i + 2]) == 0xAC) {
-      // 匹配 "第"，后面跟数字
-      size_t pos = i + 3;  // 跳过 "第"
-      const auto [num, digits] = parse_season_number(folder_name, pos);
-      if (digits > 0) {
-        size_t after_num = pos + digits;
-        // 检查后面是否跟着 "季"
-        if (after_num + 2 < len &&
-            static_cast<uint8_t>(folder_name[after_num]) == 0xE5 &&
-            static_cast<uint8_t>(folder_name[after_num + 1]) == 0xAD &&
-            static_cast<uint8_t>(folder_name[after_num + 2]) == 0xA3) {
-          // 检查 "季" 后面的边界
-          if (after_num + 3 >= len ||
-              is_season_sep(folder_name[after_num + 3])) {
-            return std::format("S{:02d}", num);
-          }
-        }
-      }
+      auto result = try_match_chinese_season(folder_name, i);
+      if (!result.empty()) return result;
     }
 
     // 模式4: 1st Season / 2nd Season / 3rd Season / 4th Season
-    if (i > 0 && is_season_sep(folder_name[i - 1]) &&
-        std::isdigit(static_cast<unsigned char>(c))) {
-      const auto [num, digits] = parse_season_number(folder_name, i);
-      if (digits > 0) {
-        size_t pos = i + digits;
-        // 检查序数后缀: st, nd, rd, th
-        if (pos + 1 < len) {
-          const char s1 =
-              std::tolower(static_cast<unsigned char>(folder_name[pos]));
-          const char s2 =
-              std::tolower(static_cast<unsigned char>(folder_name[pos + 1]));
-          bool ordinal = false;
-          if (s1 == 's' && s2 == 't' && (num == 1 || (num % 10 == 1 && num > 10 && num / 10 % 10 != 1))) {
-            ordinal = true;
-          } else if (s1 == 'n' && s2 == 'd' &&
-                     (num == 2 || (num % 10 == 2 && num > 10 && num / 10 % 10 != 1))) {
-            ordinal = true;
-          } else if (s1 == 'r' && s2 == 'd' &&
-                     (num == 3 || (num % 10 == 3 && num > 10 && num / 10 % 10 != 1))) {
-            ordinal = true;
-          } else if (s1 == 't' && s2 == 'h') {
-            ordinal = true;
-          }
-          if (ordinal) {
-            pos += 2;
-            // 允许序数后缀和 "Season" 之间有分隔符 [._ -]
-            while (pos < len && is_season_sep(folder_name[pos])) {
-              ++pos;
-            }
-            // 检查 "Season" (不区分大小写)
-            if (starts_with_season(folder_name, pos)) {
-              const size_t after_season = pos + 6;
-              if (is_season_boundary(folder_name, after_season)) {
-                return std::format("S{:02d}", num);
-              }
-            }
-          }
-        }
-      }
+    if (std::isdigit(static_cast<unsigned char>(c))) {
+      auto result = try_match_ordinal_season(folder_name, i);
+      if (!result.empty()) return result;
     }
   }
 

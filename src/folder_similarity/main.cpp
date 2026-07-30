@@ -48,9 +48,9 @@ void print_groups(
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]) {
   AppConfig config;
-  
-  common::cli::parser parser("Compare folder names using Levenshtein distance.\n" 
-                             "If no directories are specified, the current directory is used.\n" 
+
+  common::cli::parser parser("Compare folder names using Levenshtein distance.\n"
+                             "If no directories are specified, the current directory is used.\n"
                              "Only pairs with similarity >= threshold are displayed.");
   parser.add_option({"--threshold", 's', "Set similarity threshold (0.0 ~ 1.0, default: 0.9)", true});
   parser.add_option({"--time", 't', "Sort by modification time (oldest first)", false});
@@ -58,16 +58,16 @@ void print_groups(
   parser.add_option({"--min", 'm', "Sort by folder size (smallest first)", false});
   parser.add_option({"--max", 'M', "Sort by folder size (largest first)", false});
   parser.add_positional("directory", "Directory to scan");
-  
+
   auto parse_result = parser.parse(argc, argv);
   if (!parse_result) {
-    if (parse_result.error() == "HELP") {
+    if (parse_result.error() == common::cli::k_help_sentinel) {
       parser.print_usage(argv[0]);
-      return std::unexpected("HELP");
+      return std::unexpected(std::string(common::cli::k_help_sentinel));
     }
     return std::unexpected(parse_result.error());
   }
-  
+
   // 处理阈值选项
   auto threshold_str = common::cli::parser::get_option(*parse_result, "--threshold");
   if (!threshold_str.empty()) {
@@ -82,7 +82,7 @@ void print_groups(
       return std::unexpected("Error: Threshold value out of range: " + std::string(threshold_str) + "\n");
     }
   }
-  
+
   // 处理排序选项
   if (common::cli::parser::has_option(*parse_result, "--time-reverse")) {
     config.sort_time = true;
@@ -103,11 +103,11 @@ void print_groups(
   for (const auto& dir : parse_result->positional) {
     config.directories.emplace_back(dir);
   }
-  
+
   if (config.directories.empty()) {
     config.directories.emplace_back(".");
   }
-  
+
   return config;
 }
 
@@ -201,6 +201,153 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
   return groups;
 }
 
+// ==================== 输出结构与辅助函数 ====================
+
+/// 单个路径的展示信息
+struct path_info {
+  std::string path_str;
+  std::string time_str;
+  std::string size_str;
+  std::string error_msg;
+  fs::file_time_type mtime;
+  std::uintmax_t raw_size = 0;
+};
+
+/// 一个相似组的输出数据
+struct group_out {
+  double min_sim;
+  std::vector<std::string> names;              // 层级模式
+  std::vector<const path_info*> sorted;        // 扁平模式（已排序）
+};
+
+/// 收集组内路径信息到 name_to_info 缓存，并更新最大列宽
+void collect_group_path_infos(
+    const std::vector<std::string>& group,
+    const std::unordered_map<std::string, std::vector<fs::path>>& name_to_paths,
+    std::unordered_map<std::string, std::vector<path_info>>& name_to_info,
+    size_t& max_time_w,
+    size_t& max_size_w,
+    common::size_cache& sc) {
+  for (const auto& name : group) {
+    if (name_to_info.contains(name)) continue;
+
+    auto& infos = name_to_info[name];
+    for (const auto& path : name_to_paths.at(name)) {
+      path_info pi;
+      pi.path_str = path.string();
+      try {
+        pi.mtime = fs::last_write_time(path);
+        pi.raw_size = sc.get(path);
+        pi.time_str = common::format_time(pi.mtime);
+        pi.size_str = common::format_size(pi.raw_size);
+        max_time_w = std::max(max_time_w,
+                              common::display_width(pi.time_str));
+        max_size_w = std::max(max_size_w,
+                              common::display_width(pi.size_str));
+      } catch (const fs::filesystem_error& e) {
+        pi.error_msg = e.what();
+      }
+      infos.push_back(std::move(pi));
+    }
+  }
+}
+
+/// 计算组内最低相似度
+[[nodiscard]] double compute_min_similarity(
+    const std::vector<std::string>& group,
+    const std::unordered_map<std::string, size_t>& name_to_index,
+    common::similarity_cache& sim_cache) {
+  double min_sim = 1.0;
+  for (size_t i = 0; i < group.size(); ++i) {
+    for (size_t j = i + 1; j < group.size(); ++j) {
+      const size_t idx1 = name_to_index.at(group[i]);
+      const size_t idx2 = name_to_index.at(group[j]);
+      const double* cached = sim_cache.find(idx1, idx2);
+      const double sim =
+          cached ? *cached
+                 : common::levenshtein_similarity(group[i], group[j], 0.0);
+      min_sim = std::min(min_sim, sim);
+    }
+  }
+  return min_sim;
+}
+
+/// 对 group 的 path_info 进行排序（时间或体积）
+void sort_group_entries(
+    std::vector<const path_info*>& sorted,
+    bool sort_time,
+    bool sort_time_desc,
+    bool sort_size_desc) {
+  if (sort_time) {
+    std::ranges::sort(sorted,
+                      [sort_time_desc](const path_info* a,
+                                       const path_info* b) {
+                        return sort_time_desc
+                                   ? a->mtime > b->mtime
+                                   : a->mtime < b->mtime;
+                      });
+  } else {
+    std::ranges::sort(sorted,
+                      [sort_size_desc](const path_info* a,
+                                       const path_info* b) {
+                        return sort_size_desc
+                                   ? a->raw_size > b->raw_size
+                                   : a->raw_size < b->raw_size;
+                      });
+  }
+}
+
+/// 打印单行路径信息（带列对齐）
+void print_path_line(std::ostream& os,
+                     const path_info& pi,
+                     size_t max_time_w,
+                     size_t max_size_w) {
+  if (!pi.error_msg.empty()) {
+    os << "    "
+       << std::string(max_time_w, ' ') << "  "
+       << std::string(max_size_w, ' ') << "  '"
+       << pi.path_str << "' (error: " << pi.error_msg << ")\n";
+  } else {
+    os << "    "
+       << std::string(max_time_w - common::display_width(pi.time_str), ' ')
+       << pi.time_str << "  "
+       << pi.size_str
+       << std::string(max_size_w - common::display_width(pi.size_str), ' ')
+       << "  '" << pi.path_str << "'\n";
+  }
+}
+
+/// 以扁平模式输出组
+void print_group_flat(std::ostream& os,
+                      const group_out& g,
+                      size_t max_time_w,
+                      size_t max_size_w) {
+  os << "Group (min similarity: " << std::fixed << std::setprecision(2)
+     << g.min_sim << "):\n";
+  for (const auto* pi : g.sorted) {
+    print_path_line(os, *pi, max_time_w, max_size_w);
+  }
+  os << "\n";
+}
+
+/// 以层级模式输出组
+void print_group_hierarchical(
+    std::ostream& os,
+    const group_out& g,
+    const std::unordered_map<std::string, std::vector<path_info>>& name_to_info,
+    size_t max_time_w,
+    size_t max_size_w) {
+  os << "Group (min similarity: " << std::fixed << std::setprecision(2)
+     << g.min_sim << "):\n";
+  for (const auto& name : g.names) {
+    os << "  \"" << name << "\":\n";
+    for (const auto& pi : name_to_info.at(name)) {
+      print_path_line(os, pi, max_time_w, max_size_w);
+    }
+  }
+  os << "\n";
+}
+
 void print_groups(
     std::ostream& os,
     const std::unordered_map<size_t, std::vector<std::string>>& groups,
@@ -212,98 +359,28 @@ void print_groups(
     bool sort_time_desc,
     bool sort_size,
     bool sort_size_desc) {
-  // 路径数据
-  struct path_info {
-    std::string path_str;
-    std::string time_str;
-    std::string size_str;
-    std::string error_msg;
-    fs::file_time_type mtime;
-    std::uintmax_t raw_size = 0;
-  };
-  std::unordered_map<std::string, std::vector<path_info>> name_to_info;
-
-  // 扁平条目（排序模式下用）
-  struct group_out {
-    double min_sim;
-    std::vector<std::string> names;              // 层级模式
-    std::vector<const path_info*> sorted;        // 扁平模式（已排序）
-  };
-  std::vector<group_out> printable;
-
+  const bool use_flat = (sort_time || sort_size);
   size_t max_time_w = 0;
   size_t max_size_w = 0;
-  bool use_flat = (sort_time || sort_size);
+  std::unordered_map<std::string, std::vector<path_info>> name_to_info;
+  std::vector<group_out> printable;
 
   for (const auto& group : std::views::values(groups)) {
     if (group.size() < 2) continue;
 
-    // 计算组内最低相似度
-    double min_sim = 1.0;
-    for (size_t i = 0; i < group.size(); ++i) {
-      for (size_t j = i + 1; j < group.size(); ++j) {
-        const size_t idx1 = name_to_index.at(group[i]);
-        const size_t idx2 = name_to_index.at(group[j]);
-        const double* cached = sim_cache.find(idx1, idx2);
-        const double sim =
-            cached ? *cached
-                   : common::levenshtein_similarity(group[i], group[j], 0.0);
-        min_sim = std::min(min_sim, sim);
-      }
-    }
-
     group_out go;
-    go.min_sim = min_sim;
-
-    // 收集路径信息并计算列宽（每个 name 只处理一次）
-    for (const auto& name : group) {
-      if (name_to_info.contains(name)) continue;
-
-      auto& infos = name_to_info[name];
-      for (const auto& path : name_to_paths.at(name)) {
-        path_info pi;
-        pi.path_str = path.string();
-        try {
-          pi.mtime = fs::last_write_time(path);
-          pi.raw_size = sc.get(path);
-          pi.time_str = common::format_time(pi.mtime);
-          pi.size_str = common::format_size(pi.raw_size);
-          max_time_w = std::max(max_time_w,
-                                  common::display_width(pi.time_str));
-          max_size_w = std::max(max_size_w,
-                                  common::display_width(pi.size_str));
-        } catch (const fs::filesystem_error& e) {
-          pi.error_msg = e.what();
-        }
-        infos.push_back(std::move(pi));
-      }
-    }
+    go.min_sim = compute_min_similarity(group, name_to_index, sim_cache);
+    collect_group_path_infos(group, name_to_paths, name_to_info,
+                             max_time_w, max_size_w, sc);
 
     if (use_flat) {
-      // Group 级别：收集并排序所有 path_info
       for (const auto& name : group) {
         for (const auto& pi : name_to_info[name]) {
           go.sorted.push_back(&pi);
         }
       }
-
-      if (sort_time) {
-        std::ranges::sort(go.sorted,
-                          [sort_time_desc](const path_info* a,
-                                           const path_info* b) {
-                            return sort_time_desc
-                                       ? a->mtime > b->mtime
-                                       : a->mtime < b->mtime;
-                          });
-      } else {
-        std::ranges::sort(go.sorted,
-                          [sort_size_desc](const path_info* a,
-                                           const path_info* b) {
-                            return sort_size_desc
-                                       ? a->raw_size > b->raw_size
-                                       : a->raw_size < b->raw_size;
-                          });
-      }
+      sort_group_entries(go.sorted, sort_time, sort_time_desc,
+                         sort_size_desc);
     } else {
       go.names = group;
     }
@@ -311,48 +388,13 @@ void print_groups(
     printable.push_back(std::move(go));
   }
 
-  // 对齐输出
+  // 输出
   for (const auto& g : printable) {
-    os << "Group (min similarity: " << std::fixed << std::setprecision(2)
-       << g.min_sim << "):\n";
-
     if (use_flat) {
-      for (const auto* pi : g.sorted) {
-        if (!pi->error_msg.empty()) {
-          os << "    "
-             << std::string(max_time_w, ' ') << "  "
-             << std::string(max_size_w, ' ') << "  '"
-             << pi->path_str << "' (error: " << pi->error_msg << ")\n";
-        } else {
-          os << "    "
-             << std::string(max_time_w - common::display_width(pi->time_str), ' ')
-             << pi->time_str << "  "
-             << pi->size_str
-             << std::string(max_size_w - common::display_width(pi->size_str), ' ')
-             << "  '" << pi->path_str << "'\n";
-        }
-      }
+      print_group_flat(os, g, max_time_w, max_size_w);
     } else {
-      for (const auto& name : g.names) {
-        os << "  \"" << name << "\":\n";
-        for (const auto& pi : name_to_info[name]) {
-          if (!pi.error_msg.empty()) {
-            os << "    "
-               << std::string(max_time_w, ' ')
-               << "  " << std::string(max_size_w, ' ')
-               << "  '" << pi.path_str << "' (error: " << pi.error_msg << ")\n";
-          } else {
-            os << "    "
-               << std::string(max_time_w - common::display_width(pi.time_str), ' ')
-               << pi.time_str << "  "
-               << pi.size_str
-               << std::string(max_size_w - common::display_width(pi.size_str), ' ')
-               << "  '" << pi.path_str << "'\n";
-          }
-        }
-      }
+      print_group_hierarchical(os, g, name_to_info, max_time_w, max_size_w);
     }
-    os << "\n";
   }
 }
 
@@ -361,7 +403,7 @@ void print_groups(
 int main(int argc, char* argv[]) {
   const auto config_result = parse_args(argc, argv);
   if (!config_result) {
-    if (config_result.error() == "HELP") {
+    if (config_result.error() == common::cli::k_help_sentinel) {
       return 0;
     }
     std::cerr << config_result.error();

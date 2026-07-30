@@ -51,8 +51,8 @@ void print_results(std::ostream& os,
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]) {
   AppConfig config;
-  
-  common::cli::parser parser("Extract Chinese name from brackets [...] in folder names.\n" 
+
+  common::cli::parser parser("Extract Chinese name from brackets [...] in folder names.\n"
                              "For duplicate names, display the path with the smallest total file size.");
   parser.add_option({"--min", 'm', "Print the path with the minimum total size (default)", false});
   parser.add_option({"--max", 'M', "Print the path with the maximum total size", false});
@@ -62,33 +62,33 @@ void print_results(std::ostream& os,
   parser.add_option({"--time-reverse", 'T', "Sort output by modification time (newest first)", false});
   parser.add_option({"--limit", 'l', "Limit output to N lines per group", true});
   parser.add_positional("directory", "Directory to scan");
-  
+
   auto parse_result = parser.parse(argc, argv);
   if (!parse_result) {
-    if (parse_result.error() == "HELP") {
+    if (parse_result.error() == common::cli::k_help_sentinel) {
       parser.print_usage(argv[0]);
-      return std::unexpected("HELP");
+      return std::unexpected(std::string(common::cli::k_help_sentinel));
     }
     return std::unexpected(parse_result.error());
   }
-  
+
   // 处理 min/max 选项
   if (common::cli::parser::has_option(*parse_result, "--max")) {
     config.print_max = true;
   } else if (common::cli::parser::has_option(*parse_result, "--min")) {
     config.print_max = false;
   }
-  
+
   // 处理 all 选项
   if (common::cli::parser::has_option(*parse_result, "--all")) {
     config.print_all = true;
   }
-  
+
   // 处理 print0 选项
   if (common::cli::parser::has_option(*parse_result, "--print0")) {
     config.use_print0 = true;
   }
-  
+
   // 处理时间排序选项
   if (common::cli::parser::has_option(*parse_result, "--time-reverse")) {
     config.sort_time = true;
@@ -97,7 +97,7 @@ void print_results(std::ostream& os,
     config.sort_time = true;
     config.sort_time_desc = false;
   }
-  
+
   // 处理 limit 选项
   auto limit_str = common::cli::parser::get_option(*parse_result, "--limit");
   if (!limit_str.empty()) {
@@ -111,12 +111,12 @@ void print_results(std::ostream& os,
       return std::unexpected("Error: -l requires a valid number\n");
     }
   }
-  
+
   // 处理位置参数
   if (!parse_result->positional.empty()) {
     config.path = parse_result->positional[0];
   }
-  
+
   return config;
 }
 
@@ -160,6 +160,99 @@ NameMap collect_name_map(const std::string& path_str, common::size_cache& sc) {
   return name_map;
 }
 
+// ==================== 输出辅助函数 ====================
+
+/// 从 name_map 中收集所有需要输出的 name_entry 列表
+[[nodiscard]] std::vector<name_entry> collect_output_entries(
+    const NameMap& name_map,
+    bool print_max,
+    bool print_all) {
+  std::vector<name_entry> entries;
+
+  for (const auto& [chinese_name, dir_entries] : name_map) {
+    if (dir_entries.size() <= 1) continue;
+
+    if (print_all) {
+      for (const auto& e : dir_entries) {
+        entries.push_back({chinese_name, e.path, e.size, e.mtime});
+      }
+    } else {
+      const auto extreme =
+          print_max
+              ? std::ranges::max_element(
+                    dir_entries,
+                    [](const common::dir_entry& a, const common::dir_entry& b) {
+                      return a.size < b.size;
+                    })
+              : std::ranges::min_element(
+                    dir_entries,
+                    [](const common::dir_entry& a, const common::dir_entry& b) {
+                      return a.size < b.size;
+                    });
+      entries.push_back(
+          {chinese_name, extreme->path, extreme->size, extreme->mtime});
+    }
+  }
+
+  return entries;
+}
+
+/// 按时间排序输出条目
+void sort_entries_by_time(std::vector<name_entry>& entries,
+                          bool sort_time_desc) {
+  std::ranges::sort(entries,
+                    [sort_time_desc](const name_entry& a, const name_entry& b) {
+                      return sort_time_desc ? a.mtime > b.mtime
+                                            : a.mtime < b.mtime;
+                    });
+}
+
+/// 输出格式化的对齐文本行
+void print_aligned_output(std::ostream& os,
+                          const std::vector<name_entry>& entries,
+                          size_t max_out) {
+  // 计算列宽
+  size_t max_name_w = 0;
+  size_t max_time_w = 0;
+  size_t max_size_w = 0;
+  for (size_t i = 0; i < max_out; ++i) {
+    const auto& e = entries[i];
+    max_name_w = std::max(max_name_w, common::display_width(e.chinese_name));
+    max_time_w = std::max(
+        max_time_w, common::display_width(common::format_time(e.mtime)));
+    max_size_w = std::max(max_size_w,
+                          common::display_width(common::format_size(e.size)));
+  }
+
+  // 输出对齐行
+  for (size_t i = 0; i < max_out; ++i) {
+    const auto& entry = entries[i];
+    const auto time_str = common::format_time(entry.mtime);
+    const auto size_str = common::format_size(entry.size);
+
+    const size_t name_dw = common::display_width(entry.chinese_name);
+    const size_t time_dw = common::display_width(time_str);
+
+    os << std::string(max_name_w - name_dw, ' ')   // 名称 右对齐
+       << entry.chinese_name << "  "
+       << std::string(max_time_w - time_dw, ' ')   // 时间 右对齐
+       << time_str << "  "
+       << size_str                                   // 大小 左对齐
+       << std::string(max_size_w - common::display_width(size_str), ' ')
+       << "  '" << entry.path.string() << "'\n";    // 路径 末尾
+  }
+}
+
+/// 输出空字符分隔的路径列表
+void print_print0_output(std::ostream& os,
+                         const std::vector<name_entry>& entries,
+                         size_t max_out) {
+  for (size_t i = 0; i < max_out; ++i) {
+    os << entries[i].path.string();
+    os.put('\0');
+  }
+}
+
 void print_results(std::ostream& os,
                    const NameMap& name_map,
                    bool print_max,
@@ -168,91 +261,24 @@ void print_results(std::ostream& os,
                    bool sort_time,
                    bool sort_time_desc,
                    const std::optional<int>& limit) {
-  // 收集所有要输出的条目
-  std::vector<name_entry> output_entries;
-
-  for (const auto& [chinese_name, entries] : name_map) {
-    if (entries.size() > 1) {
-      if (print_all) {
-        for (const auto& e : entries) {
-          output_entries.push_back(
-              {chinese_name, e.path, e.size, e.mtime});
-        }
-      } else {
-        const auto extreme_entry =
-            print_max ? std::ranges::max_element(
-                            entries, [](const common::dir_entry& a,
-                                        const common::dir_entry& b) {
-                              return a.size < b.size;
-                            })
-                      : std::ranges::min_element(
-                            entries, [](const common::dir_entry& a,
-                                        const common::dir_entry& b) {
-                              return a.size < b.size;
-                            });
-        output_entries.push_back(
-            {chinese_name,
-             extreme_entry->path,
-             extreme_entry->size,
-             extreme_entry->mtime});
-      }
-    }
-  }
+  // 收集输出条目
+  auto entries = collect_output_entries(name_map, print_max, print_all);
 
   // 按时间排序
   if (sort_time) {
-    std::ranges::sort(output_entries,
-                       [sort_time_desc](const name_entry& a,
-                                        const name_entry& b) {
-                         return sort_time_desc ? a.mtime > b.mtime
-                                               : a.mtime < b.mtime;
-                       });
+    sort_entries_by_time(entries, sort_time_desc);
   }
 
-  // 输出结果
-  const size_t max_out =
-      limit.has_value()
-          ? std::min<size_t>(*limit, output_entries.size())
-          : output_entries.size();
+  // 计算实际输出数量
+  const size_t max_out = limit.has_value()
+                             ? std::min<size_t>(*limit, entries.size())
+                             : entries.size();
 
-  if (!use_print0) {
-    // 自动计算列宽（基于终端显示宽度，非字节数）
-    size_t max_name_w = 0;
-    size_t max_time_w = 0;
-    size_t max_size_w = 0;
-    for (size_t i = 0; i < max_out; ++i) {
-      const auto& e = output_entries[i];
-      max_name_w =
-          std::max(max_name_w, common::display_width(e.chinese_name));
-      max_time_w =
-          std::max(max_time_w,
-                   common::display_width(common::format_time(e.mtime)));
-      max_size_w =
-          std::max(max_size_w,
-                   common::display_width(common::format_size(e.size)));
-    }
-
-    for (size_t i = 0; i < max_out; ++i) {
-      const auto& entry = output_entries[i];
-      const auto time_str = common::format_time(entry.mtime);
-      const auto size_str = common::format_size(entry.size);
-
-      const size_t name_dw = common::display_width(entry.chinese_name);
-      const size_t time_dw = common::display_width(time_str);
-
-      os << std::string(max_name_w - name_dw, ' ')  // 名称 右对齐
-         << entry.chinese_name << "  "
-         << std::string(max_time_w - time_dw, ' ')  // 时间 右对齐
-         << time_str << "  "
-         << size_str                                  // 大小 左对齐
-         << std::string(max_size_w - common::display_width(size_str), ' ')
-         << "  '" << entry.path.string() << "'\n";    // 路径 末尾
-    }
+  // 输出
+  if (use_print0) {
+    print_print0_output(os, entries, max_out);
   } else {
-    for (size_t i = 0; i < max_out; ++i) {
-      os << output_entries[i].path.string();
-      os.put('\0');
-    }
+    print_aligned_output(os, entries, max_out);
   }
 }
 
@@ -261,7 +287,7 @@ void print_results(std::ostream& os,
 int main(int argc, char* argv[]) {
   const auto config_result = parse_args(argc, argv);
   if (!config_result) {
-    if (config_result.error() == "HELP") {
+    if (config_result.error() == common::cli::k_help_sentinel) {
       return 0;
     }
     std::cerr << config_result.error();

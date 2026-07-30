@@ -677,14 +677,14 @@ TEST_CASE("cli::parser handles errors", "[cli]") {
     const char* argv[] = {"program", "-h"};
     auto result = parser.parse(2, const_cast<char**>(argv));
     REQUIRE(!result.has_value());
-    REQUIRE(result.error() == "HELP");
+    REQUIRE(result.error() == common::cli::k_help_sentinel);
   }
 
   SECTION("returns HELP for --help") {
     const char* argv[] = {"program", "--help"};
     auto result = parser.parse(2, const_cast<char**>(argv));
     REQUIRE(!result.has_value());
-    REQUIRE(result.error() == "HELP");
+    REQUIRE(result.error() == common::cli::k_help_sentinel);
   }
 }
 

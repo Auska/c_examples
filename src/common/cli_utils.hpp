@@ -8,6 +8,9 @@
 
 namespace common::cli {
 
+// 用于标识帮助请求的哨兵值
+inline constexpr std::string_view k_help_sentinel = "__HELP__";
+
 /// 命令行选项定义
 struct option {
   std::string_view long_name;   // 如 "-max"
@@ -51,7 +54,7 @@ class parser {
       const std::string_view arg = argv[i];
 
       if (arg == "-h" || arg == "--help") {
-        return std::unexpected("HELP");
+        return std::unexpected(std::string(k_help_sentinel));
       }
 
       // 检查是否匹配已知选项

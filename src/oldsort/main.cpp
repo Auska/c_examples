@@ -40,24 +40,24 @@ void print_results(std::ostream& os,
 [[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
                                                                char* argv[]) {
   AppConfig config;
-  
-  common::cli::parser parser("List all directories in the specified path, sorted by last modification time\n" 
+
+  common::cli::parser parser("List all directories in the specified path, sorted by last modification time\n"
                              "from oldest to newest. If no directory is specified, the current directory is used.");
   parser.add_option({"--limit", 'l', "Limit output to N directories", true});
   parser.add_option({"--print0", '0', "Use null character as delimiter", false});
   parser.add_option({"--min", 'm', "Sort by folder size (smallest first)", false});
   parser.add_option({"--max", 'M', "Sort by folder size (largest first)", false});
   parser.add_positional("directory", "Directory to scan");
-  
+
   auto parse_result = parser.parse(argc, argv);
   if (!parse_result) {
-    if (parse_result.error() == "HELP") {
+    if (parse_result.error() == common::cli::k_help_sentinel) {
       parser.print_usage(argv[0]);
-      return std::unexpected("HELP");
+      return std::unexpected(std::string(common::cli::k_help_sentinel));
     }
     return std::unexpected(parse_result.error());
   }
-  
+
   // 处理 limit 选项
   auto limit_str = common::cli::parser::get_option(*parse_result, "--limit");
   if (!limit_str.empty()) {
@@ -71,24 +71,24 @@ void print_results(std::ostream& os,
       return std::unexpected("Error: -l requires a valid positive integer\n");
     }
   }
-  
+
   // 处理 print0 选项
   if (common::cli::parser::has_option(*parse_result, "--print0")) {
     config.use_print0 = true;
   }
-  
+
   // 处理排序选项
   if (common::cli::parser::has_option(*parse_result, "--min")) {
     config.sort_by = sort_mode::size_asc;
   } else if (common::cli::parser::has_option(*parse_result, "--max")) {
     config.sort_by = sort_mode::size_desc;
   }
-  
+
   // 处理位置参数
   if (!parse_result->positional.empty()) {
     config.path = parse_result->positional[0];
   }
-  
+
   return config;
 }
 
@@ -154,6 +154,63 @@ void sort_directories(std::vector<common::dir_entry>& dirs,
   }
 }
 
+// ==================== 输出辅助函数 ====================
+
+/// 输出格式化的对齐文本行
+void print_aligned_output(std::ostream& os,
+                          const std::vector<common::dir_entry>& dirs,
+                          size_t max_output) {
+  // 自动计算列宽（基于终端显示宽度）
+  size_t max_time_w = 0;
+  size_t max_size_w = 0;
+  for (size_t i = 0; i < max_output; ++i) {
+    max_time_w = std::max(max_time_w,
+                          common::display_width(common::format_time(dirs[i].mtime)));
+    max_size_w = std::max(max_size_w,
+                          common::display_width(common::format_size(dirs[i].size)));
+  }
+
+  for (size_t i = 0; i < max_output; ++i) {
+    const auto& dir = dirs[i];
+    const auto time_str = common::format_time(dir.mtime);
+    const auto size_str = common::format_size(dir.size);
+
+    os << std::string(max_time_w - common::display_width(time_str), ' ')
+       << time_str << "  "
+       << std::string(max_size_w - common::display_width(size_str), ' ')
+       << size_str << "  '" << dir.path.string() << "'\n";
+  }
+}
+
+/// 输出空字符分隔的路径列表
+void print_print0_output(std::ostream& os,
+                         const std::vector<common::dir_entry>& dirs,
+                         size_t max_output) {
+  for (size_t i = 0; i < max_output; ++i) {
+    os << dirs[i].path.string();
+    os.put('\0');
+  }
+}
+
+/// 输出摘要信息
+void print_summary(std::ostream& os,
+                   size_t count,
+                   size_t max_output,
+                   bool has_limit,
+                   sort_mode sort_by) {
+  if (has_limit) {
+    if (sort_by == sort_mode::size_desc) {
+      os << "\n(Showing largest " << max_output << " directories)\n";
+    } else if (sort_by == sort_mode::size_asc) {
+      os << "\n(Showing smallest " << max_output << " directories)\n";
+    } else {
+      os << "\n(Showing oldest " << max_output << " directories)\n";
+    }
+  } else {
+    os << "\nFound " << count << " directories.\n";
+  }
+}
+
 void print_results(std::ostream& os,
                    const std::vector<common::dir_entry>& dirs,
                    bool use_print0,
@@ -163,48 +220,11 @@ void print_results(std::ostream& os,
   const size_t max_output =
       limit.has_value() ? std::min<size_t>(*limit, count) : count;
 
-  if (!use_print0) {
-    // 自动计算列宽（基于终端显示宽度）
-    size_t max_time_w = 0;
-    size_t max_size_w = 0;
-    for (size_t i = 0; i < max_output; ++i) {
-      max_time_w =
-          std::max(max_time_w,
-                   common::display_width(common::format_time(dirs[i].mtime)));
-      max_size_w =
-          std::max(max_size_w,
-                   common::display_width(common::format_size(dirs[i].size)));
-    }
-
-    for (size_t i = 0; i < max_output; ++i) {
-      const auto& dir = dirs[i];
-      const auto time_str = common::format_time(dir.mtime);
-      const auto size_str = common::format_size(dir.size);
-
-      os << std::string(max_time_w - common::display_width(time_str), ' ')
-         << time_str << "  "
-         << std::string(max_size_w - common::display_width(size_str), ' ')
-         << size_str << "  '" << dir.path.string() << "'\n";
-    }
+  if (use_print0) {
+    print_print0_output(os, dirs, max_output);
   } else {
-    for (size_t i = 0; i < max_output; ++i) {
-      os << dirs[i].path.string();
-      os.put('\0');
-    }
-  }
-
-  if (!use_print0) {
-    if (limit.has_value()) {
-      if (sort_by == sort_mode::size_desc) {
-        os << "\n(Showing largest " << max_output << " directories)\n";
-      } else if (sort_by == sort_mode::size_asc) {
-        os << "\n(Showing smallest " << max_output << " directories)\n";
-      } else {
-        os << "\n(Showing oldest " << max_output << " directories)\n";
-      }
-    } else {
-      os << "\nFound " << count << " directories.\n";
-    }
+    print_aligned_output(os, dirs, max_output);
+    print_summary(os, count, max_output, limit.has_value(), sort_by);
   }
 }
 
@@ -213,7 +233,7 @@ void print_results(std::ostream& os,
 int main(int argc, char* argv[]) {
   const auto config_result = parse_args(argc, argv);
   if (!config_result) {
-    if (config_result.error() == "HELP") {
+    if (config_result.error() == common::cli::k_help_sentinel) {
       return 0;
     }
     std::cerr << config_result.error();
