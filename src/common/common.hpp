@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cli_args.hpp"
 #include "cli_utils.hpp"
 #include "dir_entry.hpp"
 #include "fs_utils.hpp"

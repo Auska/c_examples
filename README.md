@@ -13,7 +13,7 @@
 ## 构建要求
 
 - C++23 支持的编译器（如 GCC 13+ 或 Clang 16+）
-- CMake 3.16+
+- CMake 3.27+
 
 ## 构建和测试
 
@@ -154,15 +154,18 @@ cmake --install build
 ```
 c_examples/
 ├── src/
-│   ├── common/                # 公共模块
+│   ├── common/                # 公共模块（编译为 common_utils 静态库）
 │   │   ├── common.hpp         # 聚合头文件
-│   │   ├── cli_utils.hpp      # 命令行解析器
+│   │   ├── cli_args.hpp       # 统一 CLI 解析（tool_descriptor / parsed_args / run_tool）
+│   │   ├── cli_args.cpp
+│   │   ├── cli_utils.hpp      # 基础命令行解析器
 │   │   ├── dir_entry.hpp      # 目录条目结构体
-│   │   ├── fs_utils.hpp       # 文件系统校验
+│   │   ├── fs_utils.hpp / .cpp    # 文件系统校验
 │   │   ├── levenshtein.hpp    # Levenshtein 算法（RapidFuzz 字节级）
-│   │   ├── size_utils.hpp     # 大小格式化和计算 + 缓存
-│   │   ├── string_utils.hpp   # 字符串处理（手写扫描提取季数 + 显示宽度）
-│   │   ├── time_utils.hpp     # 时间格式化
+│   │   ├── output_utils.hpp / .cpp # 格式化输出（列对齐、错误行）
+│   │   ├── size_utils.hpp / .cpp   # 大小格式化和计算 + 缓存
+│   │   ├── string_utils.hpp / .cpp # 字符串处理（手写扫描提取季数 + 显示宽度）
+│   │   ├── time_utils.hpp / .cpp   # 时间格式化
 │   │   └── union_find.hpp     # 并查集
 │   ├── folder_similarity/     # 文件夹相似度工具
 │   │   └── main.cpp
@@ -186,10 +189,31 @@ c_examples/
 
 ## 公共模块
 
+所有工具通过 `common_utils` 静态库共享公共功能。
+
 ```cpp
 #include "common/common.hpp"
 
-// 命令行解析
+// ==================== 统一 CLI 入口 ====================
+// 每个工具通过 descriptor 声明支持哪些选项，run_tool 自动处理解析/校验/异常
+common::args::run_tool(argc, argv,
+    {.description = "My tool",
+     .has_threshold = true,
+     .has_time_sort = true,
+     .has_size_sort = true,
+     .has_limit = true,
+     .has_show_mode = false,
+     .has_print0 = true},
+    [](const common::args::parsed_args& args) -> int {
+        args.directories;           // 目录列表
+        args.threshold;             // 相似度阈值
+        args.sort_time;             // 时间排序
+        args.limit;                 // 限制行数
+        args.print0;                // null 分隔输出
+        return 0;
+    });
+
+// ==================== 命令行解析 ====================
 common::cli::parser p("program description");
 p.add_option({"--threshold", 's', "Set threshold", true});
 p.add_positional("directory", "Dir to scan");

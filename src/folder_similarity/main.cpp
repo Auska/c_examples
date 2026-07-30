@@ -9,21 +9,8 @@
 
 namespace fs = std::filesystem;
 
-// ==================== 配置结构 ====================
-
-struct AppConfig {
-  double threshold = 0.9;
-  std::vector<std::string> directories;
-  bool sort_time = false;
-  bool sort_time_desc = false;   // 时间降序（默认升序）
-  bool sort_size = false;
-  bool sort_size_desc = false;   // 体积降序（默认升序）
-};
-
 // ==================== 函数声明 ====================
 
-[[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
-                                                               char* argv[]);
 std::unordered_map<std::string, std::vector<fs::path>> collect_folders(
     const std::vector<std::string>& dir_paths);
 std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
@@ -44,72 +31,6 @@ void print_groups(
     bool sort_size_desc);
 
 // ==================== 函数实现 ====================
-
-[[nodiscard]] std::expected<AppConfig, std::string> parse_args(int argc,
-                                                               char* argv[]) {
-  AppConfig config;
-
-  common::cli::parser parser("Compare folder names using Levenshtein distance.\n"
-                             "If no directories are specified, the current directory is used.\n"
-                             "Only pairs with similarity >= threshold are displayed.");
-  parser.add_option({"--threshold", 's', "Set similarity threshold (0.0 ~ 1.0, default: 0.9)", true});
-  parser.add_option({"--time", 't', "Sort by modification time (oldest first)", false});
-  parser.add_option({"--time-reverse", 'T', "Sort by modification time (newest first)", false});
-  parser.add_option({"--min", 'm', "Sort by folder size (smallest first)", false});
-  parser.add_option({"--max", 'M', "Sort by folder size (largest first)", false});
-  parser.add_positional("directory", "Directory to scan");
-
-  auto parse_result = parser.parse(argc, argv);
-  if (!parse_result) {
-    if (parse_result.error() == common::cli::k_help_sentinel) {
-      parser.print_usage(argv[0]);
-      return std::unexpected(std::string(common::cli::k_help_sentinel));
-    }
-    return std::unexpected(parse_result.error());
-  }
-
-  // 处理阈值选项
-  auto threshold_str = common::cli::parser::get_option(*parse_result, "--threshold");
-  if (!threshold_str.empty()) {
-    try {
-      config.threshold = std::stod(std::string(threshold_str));
-      if (config.threshold < 0.0 || config.threshold > 1.0) {
-        return std::unexpected("Error: Similarity threshold must be between 0.0 and 1.0\n");
-      }
-    } catch (const std::invalid_argument&) {
-      return std::unexpected("Error: Invalid threshold value: " + std::string(threshold_str) + "\n");
-    } catch (const std::out_of_range&) {
-      return std::unexpected("Error: Threshold value out of range: " + std::string(threshold_str) + "\n");
-    }
-  }
-
-  // 处理排序选项
-  if (common::cli::parser::has_option(*parse_result, "--time-reverse")) {
-    config.sort_time = true;
-    config.sort_time_desc = true;
-  } else if (common::cli::parser::has_option(*parse_result, "--time")) {
-    config.sort_time = true;
-    config.sort_time_desc = false;
-  }
-  if (common::cli::parser::has_option(*parse_result, "--max")) {
-    config.sort_size = true;
-    config.sort_size_desc = true;
-  } else if (common::cli::parser::has_option(*parse_result, "--min")) {
-    config.sort_size = true;
-    config.sort_size_desc = false;
-  }
-
-  // 处理位置参数
-  for (const auto& dir : parse_result->positional) {
-    config.directories.emplace_back(dir);
-  }
-
-  if (config.directories.empty()) {
-    config.directories.emplace_back(".");
-  }
-
-  return config;
-}
 
 std::unordered_map<std::string, std::vector<fs::path>> collect_folders(
     const std::vector<std::string>& dir_paths) {
@@ -157,22 +78,14 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
     double threshold,
     common::UnionFind& uf,
     common::similarity_cache& sim_cache) {
-  // 预计算每个名称的字节长度，用于快速预过滤
-  // （RapidFuzz 在字节级别计算距离，故使用 byte_len 做预过滤）
   std::vector<size_t> byte_lens;
   byte_lens.reserve(unique_names.size());
   for (const auto& name : unique_names) {
     byte_lens.push_back(name.size());
   }
 
-  // 预过滤：计算长度差对应的最低相似度
-  // 相似度 = 1 - distance/max_len，最低 distance = |len_diff|
-  // 所以最低相似度 = 1 - |len_diff|/max_len
-  // 如果最低相似度 < threshold，则这对不可能满足条件
-
   for (size_t i = 0; i < unique_names.size(); ++i) {
     for (size_t j = i + 1; j < unique_names.size(); ++j) {
-      // 长度预过滤
       const size_t max_byte_len =
           std::max(byte_lens[i], byte_lens[j]);
       const size_t byte_diff =
@@ -181,7 +94,7 @@ std::unordered_map<size_t, std::vector<std::string>> build_similarity_groups(
       const double worst_sim =
           1.0 - static_cast<double>(byte_diff) / static_cast<double>(max_byte_len);
       if (worst_sim < threshold) {
-        continue;  // 长度差太大，不可能相似
+        continue;
       }
 
       const double sim =
@@ -216,8 +129,8 @@ struct path_info {
 /// 一个相似组的输出数据
 struct group_out {
   double min_sim;
-  std::vector<std::string> names;              // 层级模式
-  std::vector<const path_info*> sorted;        // 扁平模式（已排序）
+  std::vector<std::string> names;
+  std::vector<const path_info*> sorted;
 };
 
 /// 收集组内路径信息到 name_to_info 缓存，并更新最大列宽
@@ -270,7 +183,7 @@ void collect_group_path_infos(
   return min_sim;
 }
 
-/// 对 group 的 path_info 进行排序（时间或体积）
+/// 对 group 的 path_info 进行排序
 void sort_group_entries(
     std::vector<const path_info*>& sorted,
     bool sort_time,
@@ -295,7 +208,7 @@ void sort_group_entries(
   }
 }
 
-/// 打印单行路径信息（带列对齐）
+/// 打印单行路径信息
 void print_path_line(std::ostream& os,
                      const path_info& pi,
                      size_t max_time_w,
@@ -380,7 +293,6 @@ void print_groups(
     printable.push_back(std::move(go));
   }
 
-  // 输出
   for (const auto& g : printable) {
     if (use_flat) {
       print_group_flat(os, g, max_time_w, max_size_w);
@@ -393,60 +305,74 @@ void print_groups(
 // ==================== main ====================
 
 int main(int argc, char* argv[]) {
-  const auto config_result = parse_args(argc, argv);
-  if (!config_result) {
-    if (config_result.error() == common::cli::k_help_sentinel) {
-      return 0;
-    }
-    std::cerr << config_result.error();
-    return 1;
-  }
-  const auto& config = *config_result;
+  return common::args::run_tool(argc, argv,
+      common::args::tool_descriptor{
+          .description = "Compare folder names using Levenshtein distance.\n"
+                         "If no directories are specified, the current "
+                         "directory is used.\n"
+                         "Only pairs with similarity >= threshold are "
+                         "displayed.",
+          .has_threshold = true,
+          .has_size_sort = true,
+          .has_time_sort = true,
+          .supports_multiple_dirs = true,
+      },
+      [](const common::args::parsed_args& args) -> int {
+        const double threshold = args.threshold.value_or(0.9);
 
-  const auto name_to_paths = collect_folders(config.directories);
+        // Convert paths to strings for the collector
+        std::vector<std::string> dir_strs;
+        dir_strs.reserve(args.directories.size());
+        for (const auto& p : args.directories) {
+          dir_strs.push_back(p.string());
+        }
 
-  std::vector<std::string> unique_names;
-  for (const auto& name : std::views::keys(name_to_paths)) {
-    unique_names.push_back(name);
-  }
+        const auto name_to_paths = collect_folders(dir_strs);
 
-  if (unique_names.size() < 2) {
-    std::cout << "Only " << unique_names.size()
-              << " unique subfolder names found. Nothing to compare.\n";
-    return 0;
-  }
+        std::vector<std::string> unique_names;
+        for (const auto& name : std::views::keys(name_to_paths)) {
+          unique_names.push_back(name);
+        }
 
-  std::ranges::sort(unique_names);
+        if (unique_names.size() < 2) {
+          std::cout << "Only " << unique_names.size()
+                    << " unique subfolder names found. "
+                       "Nothing to compare.\n";
+          return 0;
+        }
 
-  // 构建名称到索引的映射，用于 O(1) 索引查找
-  std::unordered_map<std::string, size_t> name_to_index;
-  for (size_t i = 0; i < unique_names.size(); ++i) {
-    name_to_index[unique_names[i]] = i;
-  }
+        std::ranges::sort(unique_names);
 
-  common::similarity_cache sim_cache;
-  common::UnionFind uf(unique_names.size());
+        std::unordered_map<std::string, size_t> name_to_index;
+        for (size_t i = 0; i < unique_names.size(); ++i) {
+          name_to_index[unique_names[i]] = i;
+        }
 
-  const auto groups = build_similarity_groups(
-      unique_names, config.threshold, uf, sim_cache);
+        common::similarity_cache sim_cache;
+        common::UnionFind uf(unique_names.size());
 
-  bool found = false;
-  for (const auto& group : std::views::values(groups)) {
-    if (group.size() >= 2) {
-      found = true;
-      break;
-    }
-  }
+        const auto groups = build_similarity_groups(
+            unique_names, threshold, uf, sim_cache);
 
-  common::size_cache sc;
-  if (found) {
-    print_groups(std::cout, groups, name_to_index, name_to_paths, sim_cache,
-                 sc, config.sort_time, config.sort_time_desc,
-                 config.sort_size, config.sort_size_desc);
-  } else {
-    std::cout << "No folder name groups with similarity >= " << config.threshold
-              << "\n";
-  }
+        bool found = false;
+        for (const auto& group : std::views::values(groups)) {
+          if (group.size() >= 2) {
+            found = true;
+            break;
+          }
+        }
 
-  return 0;
+        common::size_cache sc;
+        if (found) {
+          print_groups(std::cout, groups, name_to_index, name_to_paths,
+                       sim_cache, sc,
+                       args.sort_time, args.sort_time_desc,
+                       args.sort_size, args.sort_size_desc);
+        } else {
+          std::cout << "No folder name groups with similarity >= "
+                    << threshold << "\n";
+        }
+
+        return 0;
+      });
 }
