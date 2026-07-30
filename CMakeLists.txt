@@ -41,10 +41,10 @@ if(ENABLE_TESTS)
   add_executable(test_runner
       tests/test_common.cpp
       tests/test_tools.cpp
-      external/catch_amalgamated.cpp)
+      external/Catch2-3.15.3/extras/catch_amalgamated.cpp)
   target_include_directories(test_runner PRIVATE
       ${CMAKE_SOURCE_DIR}/src
-      ${CMAKE_SOURCE_DIR}
+      ${CMAKE_SOURCE_DIR}/external/Catch2-3.15.3/extras
       ${CMAKE_SOURCE_DIR}/external/rapidfuzz-cpp-3.3.3)
 
   add_test(NAME CommonTests COMMAND test_runner)

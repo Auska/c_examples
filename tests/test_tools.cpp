@@ -1,5 +1,5 @@
 #include "common/common.hpp"
-#include "external/catch_amalgamated.hpp"
+#include "catch_amalgamated.hpp"
 
 #include <filesystem>
 #include <fstream>
