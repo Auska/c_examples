@@ -55,7 +55,7 @@ endif()
 if(ENABLE_BENCHMARKS)
   set(CELERO_ENABLE_EXPERIMENTS OFF CACHE BOOL "" FORCE)
   set(CELERO_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
-  add_subdirectory(external/Celero-2.10.0)
+  add_subdirectory(external/Celero-2.10.0 EXCLUDE_FROM_ALL)
 
   add_executable(benchmark_runner benchmarks/benchmark_common.cpp)
   target_include_directories(benchmark_runner PRIVATE
