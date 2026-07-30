@@ -217,11 +217,11 @@ void print_aligned_output(std::ostream& os,
   size_t max_size_w = 0;
   for (size_t i = 0; i < max_out; ++i) {
     const auto& e = entries[i];
-    max_name_w = std::max(max_name_w, common::display_width(e.chinese_name));
-    max_time_w = std::max(
-        max_time_w, common::display_width(common::format_time(e.mtime)));
-    max_size_w = std::max(max_size_w,
-                          common::display_width(common::format_size(e.size)));
+    common::output::update_max_width(max_name_w, e.chinese_name);
+    common::output::update_max_width(
+        max_time_w, common::format_time(e.mtime));
+    common::output::update_max_width(
+        max_size_w, common::format_size(e.size));
   }
 
   // 输出对齐行
@@ -230,16 +230,14 @@ void print_aligned_output(std::ostream& os,
     const auto time_str = common::format_time(entry.mtime);
     const auto size_str = common::format_size(entry.size);
 
-    const size_t name_dw = common::display_width(entry.chinese_name);
-    const size_t time_dw = common::display_width(time_str);
-
-    os << std::string(max_name_w - name_dw, ' ')   // 名称 右对齐
-       << entry.chinese_name << "  "
-       << std::string(max_time_w - time_dw, ' ')   // 时间 右对齐
-       << time_str << "  "
-       << size_str                                   // 大小 左对齐
-       << std::string(max_size_w - common::display_width(size_str), ' ')
-       << "  '" << entry.path.string() << "'\n";    // 路径 末尾
+    common::output::print_right_aligned(os, entry.chinese_name, max_name_w);
+    os << "  ";
+    common::output::print_right_aligned(os, time_str, max_time_w);
+    os << "  " << size_str
+       << std::string(max_size_w > common::display_width(size_str)
+                        ? max_size_w - common::display_width(size_str)
+                        : 0, ' ')
+       << "  '" << entry.path.string() << "'\n";
   }
 }
 
@@ -247,10 +245,12 @@ void print_aligned_output(std::ostream& os,
 void print_print0_output(std::ostream& os,
                          const std::vector<name_entry>& entries,
                          size_t max_out) {
+  std::vector<std::string> paths;
+  paths.reserve(max_out);
   for (size_t i = 0; i < max_out; ++i) {
-    os << entries[i].path.string();
-    os.put('\0');
+    paths.push_back(entries[i].path.string());
   }
+  common::output::print_print0_paths(os, paths, max_out);
 }
 
 void print_results(std::ostream& os,

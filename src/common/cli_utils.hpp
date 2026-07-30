@@ -22,7 +22,7 @@ struct option {
 /// 解析结果
 struct parse_result {
   /// 选项名 -> 值（无参数选项值为空串）
-  std::vector<std::pair<std::string_view, std::string>> options;
+  std::vector<std::pair<std::string, std::string>> options;
   /// 位置参数
   std::vector<std::string> positional;
 };

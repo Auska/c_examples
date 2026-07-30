@@ -1013,9 +1013,8 @@ TEST_CASE("extract_season handles ordinal formats", "[common]") {
 // ==================== 文件系统错误处理测试 ====================
 
 TEST_CASE("calculate_total_size handles errors gracefully", "[common]") {
-  SECTION("permission denied returns 0") {
-    std::uintmax_t size = common::calculate_total_size(fs::temp_directory_path());
-    REQUIRE(size >= 0);
+  SECTION("does not throw on accessible directory") {
+    REQUIRE_NOTHROW(common::calculate_total_size(fs::temp_directory_path()));
   }
 }
 
@@ -1071,5 +1070,117 @@ TEST_CASE("display_width calculates terminal display width", "[common]") {
     // "YYYY-MM-DD+HH:MM:SS" = 19 ASCII chars
     auto ft = fs::last_write_time(fs::current_path());
     REQUIRE(common::display_width(common::format_time(ft)) == 19);
+  }
+}
+
+// ==================== output_utils 测试 ====================
+
+TEST_CASE("output::update_max_width updates correctly", "[output]") {
+  SECTION("starts at 0") {
+    size_t w = 0;
+    common::output::update_max_width(w, "hello");
+    REQUIRE(w == 5);
+  }
+
+  SECTION("takes max") {
+    size_t w = 0;
+    common::output::update_max_width(w, "hi");
+    common::output::update_max_width(w, "hello");
+    REQUIRE(w == 5);
+  }
+
+  SECTION("CJK is double width") {
+    size_t w = 0;
+    common::output::update_max_width(w, "测试");
+    REQUIRE(w == 4);
+  }
+
+  SECTION("mixed widths") {
+    size_t w = 0;
+    common::output::update_max_width(w, "测试");
+    common::output::update_max_width(w, "hello");
+    REQUIRE(w == 5);  // "hello" is longer in display width
+  }
+}
+
+TEST_CASE("output::print_right_aligned pads correctly", "[output]") {
+  SECTION("shorter string gets padded") {
+    std::ostringstream ss;
+    common::output::print_right_aligned(ss, "hi", 5);
+    REQUIRE(ss.str() == "   hi");
+  }
+
+  SECTION("exact width has no padding") {
+    std::ostringstream ss;
+    common::output::print_right_aligned(ss, "hello", 5);
+    REQUIRE(ss.str() == "hello");
+  }
+
+  SECTION("longer string has no padding") {
+    std::ostringstream ss;
+    common::output::print_right_aligned(ss, "hello", 3);
+    REQUIRE(ss.str() == "hello");
+  }
+
+  SECTION("CJK characters") {
+    std::ostringstream ss;
+    common::output::print_right_aligned(ss, "测", 4);
+    REQUIRE(ss.str() == "  测");  // 3 spaces + 2-col char = 4 display width? No wait...
+    // "测" has display_width 2, so padding = 4 - 2 = 2
+    REQUIRE(ss.str() == "  测");
+  }
+
+  SECTION("empty string") {
+    std::ostringstream ss;
+    common::output::print_right_aligned(ss, "", 3);
+    REQUIRE(ss.str() == "   ");
+  }
+}
+
+TEST_CASE("output::print_column_line formats correctly", "[output]") {
+  SECTION("standard line") {
+    std::ostringstream ss;
+    common::output::print_column_line(ss, "12:00:00", "1.50 KB", "/tmp/test", 8, 7);
+    // indent(4) + time(8) + sep(2) + size(7) + sep(2) + path
+    REQUIRE(ss.str() == "    12:00:00  1.50 KB  '/tmp/test'\n");
+  }
+
+  SECTION("custom indent") {
+    std::ostringstream ss;
+    common::output::print_column_line(ss, "12:00", "1KB", "/tmp", 6, 3, ">>");
+    // ">>" + pad_to_6("12:00") + "  " + pad_to_3("1KB") + "  '/tmp'"
+    REQUIRE(ss.str() == ">> 12:00  1KB  '/tmp'\n");
+  }
+}
+
+TEST_CASE("output::print_error_line formats correctly", "[output]") {
+  SECTION("error line") {
+    std::ostringstream ss;
+    common::output::print_error_line(ss, "/bad/path", "permission denied", 8, 7);
+    // indent(4) + time_pad(8) + sep(2) + size_pad(7) + sep(2) = 23 prefix
+    REQUIRE(ss.str() == "                       '/bad/path' (error: permission denied)\n");
+  }
+
+  SECTION("error line with custom indent") {
+    std::ostringstream ss;
+    common::output::print_error_line(ss, "/bad", "err", 3, 3, ">>");
+    // indent(2) + time_pad(3) + sep(2) + size_pad(3) + sep(2) = 12 prefix
+    REQUIRE(ss.str() == ">>          '/bad' (error: err)\n");
+  }
+}
+
+TEST_CASE("output::print_print0_paths outputs null delimiters", "[output]") {
+  SECTION("multiple paths") {
+    std::ostringstream ss;
+    std::vector<std::string> paths = {"/a", "/b", "/c"};
+    common::output::print_print0_paths(ss, paths, 3);
+    REQUIRE(ss.str() == std::string("/a\0/b\0/c\0", 9));
+  }
+
+  SECTION("empty list") {
+    std::ostringstream ss;
+    std::vector<std::string> paths;
+    common::output::print_print0_paths(ss, paths, 0);
+    REQUIRE(ss.str().empty());
   }
 }

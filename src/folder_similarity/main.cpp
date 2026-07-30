@@ -240,10 +240,8 @@ void collect_group_path_infos(
         pi.raw_size = sc.get(path);
         pi.time_str = common::format_time(pi.mtime);
         pi.size_str = common::format_size(pi.raw_size);
-        max_time_w = std::max(max_time_w,
-                              common::display_width(pi.time_str));
-        max_size_w = std::max(max_size_w,
-                              common::display_width(pi.size_str));
+        common::output::update_max_width(max_time_w, pi.time_str);
+        common::output::update_max_width(max_size_w, pi.size_str);
       } catch (const fs::filesystem_error& e) {
         pi.error_msg = e.what();
       }
@@ -303,17 +301,11 @@ void print_path_line(std::ostream& os,
                      size_t max_time_w,
                      size_t max_size_w) {
   if (!pi.error_msg.empty()) {
-    os << "    "
-       << std::string(max_time_w, ' ') << "  "
-       << std::string(max_size_w, ' ') << "  '"
-       << pi.path_str << "' (error: " << pi.error_msg << ")\n";
+    common::output::print_error_line(os, pi.path_str, pi.error_msg,
+                                     max_time_w, max_size_w);
   } else {
-    os << "    "
-       << std::string(max_time_w - common::display_width(pi.time_str), ' ')
-       << pi.time_str << "  "
-       << pi.size_str
-       << std::string(max_size_w - common::display_width(pi.size_str), ' ')
-       << "  '" << pi.path_str << "'\n";
+    common::output::print_column_line(os, pi.time_str, pi.size_str,
+                                      pi.path_str, max_time_w, max_size_w);
   }
 }
 

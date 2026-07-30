@@ -4,6 +4,7 @@
 #include "dir_entry.hpp"
 #include "fs_utils.hpp"
 #include "levenshtein.hpp"
+#include "output_utils.hpp"
 #include "size_utils.hpp"
 #include "string_utils.hpp"
 #include "time_utils.hpp"

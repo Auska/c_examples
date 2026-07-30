@@ -10,7 +10,7 @@ option(ENABLE_TESTS "Build unit tests" ON)
 option(ENABLE_BENCHMARKS "Build benchmarks" ON)
 
 # 编译选项
-add_compile_options(-Wall -Wextra)
+add_compile_options(-Wall -Wextra -Werror)
 
 # 可执行文件
 add_executable(folder_similarity src/folder_similarity/main.cpp)
@@ -38,7 +38,10 @@ install(TARGETS folder_similarity oldsort extract_name
 if(ENABLE_TESTS)
   enable_testing()
 
-  add_executable(test_runner tests/test_common.cpp external/catch_amalgamated.cpp)
+  add_executable(test_runner
+      tests/test_common.cpp
+      tests/test_tools.cpp
+      external/catch_amalgamated.cpp)
   target_include_directories(test_runner PRIVATE
       ${CMAKE_SOURCE_DIR}/src
       ${CMAKE_SOURCE_DIR}
